@@ -11,7 +11,7 @@ aiosqlite>=0.20.0
 openai>=1.50.0
 
 # TTS
-piper-tts>=1.2.0;platform_machine=="x86_64"
+piper-tts>=1.2.0
 
 # Apple ecosystem
 pyatv>=0.16.0
