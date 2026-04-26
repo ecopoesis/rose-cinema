@@ -8,17 +8,10 @@ services:
     ports:
       - "8004:8004"
     volumes:
-      - chatterbox_voices:/app/voices
-      - chatterbox_reference_audio:/app/reference_audio
-      - chatterbox_outputs:/app/outputs
-      - chatterbox_logs:/app/logs
-      - chatterbox_hf_cache:/app/hf_cache
+      - /opt/containers/chatterbox/voices:/app/voices
+      - /opt/containers/chatterbox/reference_audio:/app/reference_audio
+      - /opt/containers/chatterbox/outputs:/app/outputs
+      - /opt/containers/chatterbox/logs:/app/logs
+      - /opt/containers/chatterbox/hf_cache:/app/hf_cache
     environment:
       HF_HUB_ENABLE_HF_TRANSFER: "1"
-
-volumes:
-  chatterbox_voices:
-  chatterbox_reference_audio:
-  chatterbox_outputs:
-  chatterbox_logs:
-  chatterbox_hf_cache:
