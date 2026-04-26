@@ -47,7 +47,7 @@ What's working:
 - ✅ DJ scripts scaled by `babble_rate`, voiced via Piper (incl. Bryce Beattie's narrator set: `cori-high`, `kristin`, `bryce`, `norman`, `mv2`, `jenny`)
 - ✅ Music Assistant integration — save full playlist (DJs + Apple Music) as an MA library playlist; or push directly to a player queue
 - ✅ FastAPI + SQLite + Alembic; web UI at `/` (list stations, "Generate" button)
-- ✅ Two deployment targets: native dev on macOS, Docker stack on a Linux server via Portainer
+- ✅ Three Docker stacks for production deploy: `music-assistant` (playback), `ollama` (LLM + Open WebUI for browser chat), `rose-cinema` (this app). Each is its own Portainer stack from this repo.
 
 In flight (see GitHub issues):
 
@@ -85,7 +85,8 @@ This is what's deployed to `server03` today.
 
 1. **Add the Music Assistant stack** in Portainer pointing at `deploy/music-assistant/docker-compose.yml`. Bring it up, open `http://<host>:8095/`, create an admin user, add the **Apple Music** provider (signs in with your Apple ID), add players (Sonos / AirPlay / webplayer / etc.).
 2. **Generate an MA API token** in Settings → General → Security. You'll need it next.
-3. **Add the rose-cinema stack** in Portainer pointing at `docker-compose.yml` (repo root) with these env vars:
+3. **Add the Ollama stack** in Portainer pointing at `deploy/ollama/docker-compose.yml`. Brings up `ollama` (host networking, port 11434) and `open-webui` for browser-side chat at `http://<host>:3000/`.
+4. **Add the rose-cinema stack** in Portainer pointing at `docker-compose.yml` (repo root) with these env vars:
 
    ```
    MUSICKIT_TEAM_ID=...
@@ -98,13 +99,13 @@ This is what's deployed to `server03` today.
    PUBLIC_BASE_URL=http://<your-server>:8765   # how MA fetches DJ MP3s back from radiobot
    ```
 
-4. After the stack is up, pull the LLM model into ollama (one-time, ~18 GB):
+5. Pull the LLM model into the Ollama stack (one-time, ~24 GB for qwen3.6:35b):
 
    ```bash
-   docker compose exec ollama ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M
+   docker exec ollama ollama pull qwen3.6:35b
    ```
 
-5. Bootstrap a DJ and a station (until #7 builds the create-station UI):
+6. Bootstrap a DJ and a station (until #7 builds the create-station UI):
 
    ```bash
    curl -X POST http://<host>:8765/api/djs \
@@ -118,7 +119,7 @@ This is what's deployed to `server03` today.
           "music_source":"Welcome to the Black Parade by My Chemical Romance"}'
    ```
 
-6. Open `http://<host>:8765/` and click **Generate** on the station. ~3 min later the playlist appears in Music Assistant.
+7. Open `http://<host>:8765/` and click **Generate** on the station. The generated playlist appears in Music Assistant a few minutes later.
 
 ## Quick start — local dev (macOS)
 
