@@ -17,6 +17,9 @@
   let modal = $state({ open: false, type: null, data: null });
   let importInput = $state(null);
 
+  let expandedRuns = $state({});
+  let stationRuns = $state({});
+
   function showToast(msg, error = false) {
     toastMsg = msg; toastErr = error; toastVisible = true;
     clearTimeout(toastTimer);
@@ -81,6 +84,34 @@
       showToast(`Saved "${saved.playlist_name}" (${saved.queued_uris} tracks)`);
     } catch (e) { showToast(e.message, true); }
     finally { btn.disabled = false; btn.textContent = orig; }
+  }
+
+  async function toggleRuns(stationId) {
+    if (expandedRuns[stationId]) {
+      expandedRuns = { ...expandedRuns, [stationId]: false };
+      return;
+    }
+    try {
+      const runs = await api.fetchStationRuns(stationId);
+      stationRuns = { ...stationRuns, [stationId]: runs };
+      expandedRuns = { ...expandedRuns, [stationId]: true };
+    } catch (e) { showToast(e.message, true); }
+  }
+
+  async function handleDeleteRun(runId, stationId) {
+    if (!confirm('Delete this playlist run?')) return;
+    try {
+      await api.deleteRun(runId);
+      showToast('Playlist deleted');
+      const runs = await api.fetchStationRuns(stationId);
+      stationRuns = { ...stationRuns, [stationId]: runs };
+    } catch (e) { showToast(e.message, true); }
+  }
+
+  function formatRunDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
   /* ── DJ CRUD ───────────────────────────────────────────────── */
@@ -183,6 +214,31 @@
             · max {s.dj_max_length_secs}s
             · {s.max_playlists > 0 ? `keep ${s.max_playlists} playlists` : 'unlimited playlists'}
           </div>
+          <div class="runs-toggle">
+            <button class="btn btn-sm btn-secondary" onclick={() => toggleRuns(s.id)}>
+              {expandedRuns[s.id] ? 'Hide' : 'Show'} Playlists
+              {#if stationRuns[s.id]?.length}({stationRuns[s.id].length}){/if}
+            </button>
+          </div>
+          {#if expandedRuns[s.id]}
+            <div class="runs-list">
+              {#if !stationRuns[s.id]?.length}
+                <div class="runs-empty">No playlists yet.</div>
+              {:else}
+                {#each stationRuns[s.id] as run (run.id)}
+                  <div class="run-row">
+                    <div class="run-info">
+                      <span class="run-date">{formatRunDate(run.created_at)}</span>
+                      <span class="run-meta">
+                        {run.track_count} tracks · <span class="run-status" class:run-failed={run.status === 'failed'}>{run.status}</span>
+                      </span>
+                    </div>
+                    <button class="btn btn-sm btn-danger" onclick={() => handleDeleteRun(run.id, s.id)}>Delete</button>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          {/if}
           <div class="card-footer">
             <button class="btn btn-primary" onclick={(e) => handleGenerate(s, e.target)}>Generate</button>
           </div>
@@ -262,6 +318,17 @@
   .card-desc { font-size: 0.9rem; color: #aaa; margin-bottom: 0.4rem; }
   .card-preview { font-size: 0.8rem; color: #666; margin-top: 0.5rem;
                   white-space: pre-line; max-height: 4.5em; overflow: hidden; }
+  .runs-toggle { margin-top: 0.6rem; }
+  .runs-list { margin-top: 0.5rem; border-top: 1px solid #2a2a2a; padding-top: 0.5rem;
+               display: flex; flex-direction: column; gap: 0.35rem; }
+  .runs-empty { font-size: 0.8rem; color: #666; padding: 0.25rem 0; }
+  .run-row { display: flex; justify-content: space-between; align-items: center;
+             padding: 0.35rem 0.5rem; background: #151515; border-radius: 0.3rem; }
+  .run-info { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+  .run-date { font-size: 0.8rem; color: #ccc; }
+  .run-meta { font-size: 0.75rem; color: #666; }
+  .run-status { text-transform: capitalize; }
+  .run-failed { color: #c8395a; }
   .card-footer { margin-top: 0.75rem; display: flex; justify-content: flex-end; }
 
   .empty { color: #888; padding: 2rem; text-align: center; background: #1a1a1a; border-radius: 0.5rem; }

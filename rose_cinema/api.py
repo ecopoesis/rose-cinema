@@ -27,6 +27,7 @@ from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
     GenerateRequest, PlaylistRunResponse, PlaylistEntryResponse,
+    PlaylistRunSummary,
     MAPlayRequest, MAPlayResponse, MASaveResponse,
     DJExport, StationExport, ExportData, ImportResult,
 )
@@ -286,6 +287,44 @@ async def get_run(run_id: str, session: AsyncSession = Depends(get_session)):
         entries=entries,
         error_message=run.error_message,
     )
+
+
+@app.get("/api/stations/{station_id}/runs", response_model=list[PlaylistRunSummary])
+async def list_station_runs(
+    station_id: str, session: AsyncSession = Depends(get_session)
+):
+    station_repo = SqliteStationRepository(session)
+    if not await station_repo.get(station_id):
+        raise HTTPException(404, "Station not found")
+
+    run_repo = SqlitePlaylistRunRepository(session)
+    runs = await run_repo.list_by_station(station_id)
+    return [
+        PlaylistRunSummary(
+            id=r.id,
+            station_id=r.station_id,
+            status=r.status,
+            created_at=r.created_at,
+            track_count=len([
+                e for e in json.loads(r.playlist_json)
+                if e.get("type") == "song"
+            ]) if r.playlist_json else 0,
+            error_message=r.error_message,
+        )
+        for r in runs
+    ]
+
+
+@app.delete("/api/runs/{run_id}", status_code=204)
+async def delete_run(run_id: str, session: AsyncSession = Depends(get_session)):
+    run_repo = SqlitePlaylistRunRepository(session)
+    run = await run_repo.get(run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+
+    from rose_cinema.services.cleanup import cleanup_run
+    ma_client = get_music_assistant_client()
+    await cleanup_run(run, run_repo, settings.dj_audio_dir, ma_client)
 
 
 # ── Music Assistant playback ──────────────────────────────────────────

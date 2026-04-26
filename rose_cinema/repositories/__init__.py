@@ -38,6 +38,7 @@ class PlaylistRunRecord:
     playlist_json: str = "[]"
     error_message: str | None = None
     ma_playlist_id: str | None = None
+    created_at: str | None = None
 
 
 # ── Repository interfaces ──────────────────────────────────────────────

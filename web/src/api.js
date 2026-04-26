@@ -24,3 +24,7 @@ export const generate = (stationId) =>
   api('/generate', { method: 'POST', body: { station_id: stationId } });
 export const saveToMA = (runId) =>
   api(`/runs/${runId}/save-to-ma`, { method: 'POST', body: {} });
+export const fetchStationRuns = (stationId) =>
+  api(`/stations/${stationId}/runs`);
+export const deleteRun = (runId) =>
+  api(`/runs/${runId}`, { method: 'DELETE' });

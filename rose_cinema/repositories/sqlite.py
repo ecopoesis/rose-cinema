@@ -50,6 +50,7 @@ def _run_to_record(r: PlaylistRun) -> PlaylistRunRecord:
         playlist_json=r.playlist_json,
         error_message=r.error_message,
         ma_playlist_id=r.ma_playlist_id,
+        created_at=r.created_at.isoformat() if r.created_at else None,
     )
 
 

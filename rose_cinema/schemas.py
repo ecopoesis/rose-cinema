@@ -105,6 +105,15 @@ class PlaylistRunResponse(BaseModel):
     error_message: str | None = None
 
 
+class PlaylistRunSummary(BaseModel):
+    id: str
+    station_id: str
+    status: str
+    created_at: str | None = None
+    track_count: int = 0
+    error_message: str | None = None
+
+
 # ── Music Assistant playback ──────────────────────────────────────────
 
 
