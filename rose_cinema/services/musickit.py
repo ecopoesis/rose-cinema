@@ -20,10 +20,10 @@ _TOKEN_REFRESH_BEFORE = 1 * 86_400        # refresh if < 24h remaining
 class MusicKitTokenSigner:
     """Mints and caches an Apple Music developer JWT (ES256)."""
 
-    def __init__(self, team_id: str, key_id: str, private_key_path: str):
+    def __init__(self, team_id: str, key_id: str, private_key: str):
         self._team_id = team_id
         self._key_id = key_id
-        self._private_key = Path(private_key_path).read_text()
+        self._private_key = private_key
         self._token: str | None = None
         self._exp: int = 0
 
@@ -81,14 +81,18 @@ class MusicKitCatalog(MusicCatalog):
 def get_music_catalog() -> MusicCatalog | None:
     """Build a MusicKitCatalog from settings, or return None if not configured."""
     cfg = settings
-    if not (cfg.musickit_team_id and cfg.musickit_key_id and cfg.musickit_private_key_path):
+    if not (cfg.musickit_team_id and cfg.musickit_key_id):
         return None
-    if not Path(cfg.musickit_private_key_path).exists():
-        logger.warning("MusicKit configured but key file missing: %s", cfg.musickit_private_key_path)
+    if cfg.musickit_private_key:
+        private_key = cfg.musickit_private_key
+    elif cfg.musickit_private_key_path and Path(cfg.musickit_private_key_path).exists():
+        private_key = Path(cfg.musickit_private_key_path).read_text()
+    else:
+        logger.warning("MusicKit configured but no private key (set MUSICKIT_PRIVATE_KEY or MUSICKIT_PRIVATE_KEY_PATH)")
         return None
     signer = MusicKitTokenSigner(
         team_id=cfg.musickit_team_id,
         key_id=cfg.musickit_key_id,
-        private_key_path=cfg.musickit_private_key_path,
+        private_key=private_key,
     )
     return MusicKitCatalog(signer, storefront=cfg.musickit_storefront)

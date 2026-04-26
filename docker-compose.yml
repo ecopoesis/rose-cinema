@@ -4,36 +4,41 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: rose-cinema
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
-      - ./agents:/app/agents
-    env_file:
-      - .env
+      - rc_data:/app/data
+    environment:
+      LLM_PROVIDER: ollama
+      LLM_BASE_URL: http://ollama:11434/v1
+      LLM_MODEL: ${LLM_MODEL:-qwen3:30b-a3b-instruct-2507-q4_K_M}
+      LLM_API_KEY: ollama
+      TTS_PROVIDER: piper
+      PIPER_DATA_DIR: /app/data/piper_models
+      MUSICKIT_TEAM_ID: ${MUSICKIT_TEAM_ID:-}
+      MUSICKIT_KEY_ID: ${MUSICKIT_KEY_ID:-}
+      MUSICKIT_PRIVATE_KEY: ${MUSICKIT_PRIVATE_KEY:-}
+      MUSICKIT_STOREFRONT: ${MUSICKIT_STOREFRONT:-us}
+      MA_URL: ${MA_URL:-}
+      MA_TOKEN: ${MA_TOKEN:-}
+      MA_DEFAULT_PLAYER_ID: ${MA_DEFAULT_PLAYER_ID:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+    extra_hosts:
+      # Lets us reach Music Assistant which runs with network_mode: host
+      - "host.docker.internal:host-gateway"
     depends_on:
       - ollama
-    restart: unless-stopped
-    networks:
-      - rose-net
-      # Host network access needed for pyatv mDNS discovery
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   ollama:
     image: ollama/ollama:latest
     container_name: rose-cinema-ollama
+    restart: unless-stopped
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    restart: unless-stopped
-    networks:
-      - rose-net
 
 volumes:
+  rc_data:
   ollama_data:
-
-networks:
-  rose-net:
-    driver: bridge

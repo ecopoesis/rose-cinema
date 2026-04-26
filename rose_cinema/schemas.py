@@ -102,18 +102,7 @@ class PlaylistRunResponse(BaseModel):
     error_message: str | None = None
 
 
-# ── AirPlay ───────────────────────────────────────────────────────────
-
-
-class AirPlayDeviceResponse(BaseModel):
-    name: str
-    identifier: str
-    address: str
-
-
-class PlayRequest(BaseModel):
-    device_id: str
-    run_id: str
+# ── Music Assistant playback ──────────────────────────────────────────
 
 
 class MAPlayRequest(BaseModel):

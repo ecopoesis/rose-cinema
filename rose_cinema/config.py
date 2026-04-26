@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     musickit_team_id: str = Field(default="")
     musickit_key_id: str = Field(default="")
     musickit_private_key_path: str = Field(default="")
+    musickit_private_key: str = Field(default="")  # inline PEM (preferred over path)
     musickit_storefront: str = Field(default="us")
 
     # Music Assistant (playback)

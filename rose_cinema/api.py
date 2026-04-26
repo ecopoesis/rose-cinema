@@ -21,13 +21,11 @@ from rose_cinema.services.station_builder import StationBuilder, SongMetadata
 from rose_cinema.services.track_picker import TrackPicker
 from rose_cinema.services.musickit import get_music_catalog
 from rose_cinema.services.music_assistant import get_music_assistant_client
-from rose_cinema.services.airplay import AirPlayService
 from pathlib import Path
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
     GenerateRequest, PlaylistRunResponse, PlaylistEntryResponse,
-    AirPlayDeviceResponse, PlayRequest,
     MAPlayRequest, MAPlayResponse,
 )
 
@@ -270,16 +268,6 @@ async def get_run(run_id: str, session: AsyncSession = Depends(get_session)):
     )
 
 
-# ── AirPlay ───────────────────────────────────────────────────────────
-
-
-@app.get("/api/airplay/devices", response_model=list[AirPlayDeviceResponse])
-async def discover_devices():
-    service = AirPlayService()
-    devices = await service.discover_devices()
-    return [AirPlayDeviceResponse(**d.__dict__) for d in devices]
-
-
 # ── Music Assistant playback ──────────────────────────────────────────
 
 
@@ -331,3 +319,11 @@ async def play_run(
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+# ── Web UI (must be mounted last so it doesn't shadow /api routes) ────
+
+
+_web_dir = Path(__file__).resolve().parent.parent / "web"
+if _web_dir.is_dir():
+    app.mount("/", StaticFiles(directory=str(_web_dir), html=True), name="web")
