@@ -29,5 +29,5 @@ services:
       - ollama
 
 volumes:
-  ollama_data: /opt/containers/ollama
-  open_webui_data: /opt/containers/open-webui
+  ollama_data:/opt/containers/ollama
+  open_webui_data:/opt/containers/open-webui
