@@ -69,6 +69,53 @@ class MusicAssistantClient:
         if r.get("error"):
             raise RuntimeError(f"MA play_media failed: {r['error']}")
 
+    async def save_as_playlist(
+        self,
+        name: str,
+        apple_music_uris: list[str],
+        dj_mp3_urls: list[str],
+        ordered_uris: list[str],
+    ) -> dict:
+        """Create an MA playlist with mixed Apple Music + DJ MP3 entries.
+
+        Apple Music tracks already use library-friendly URIs; DJ MP3s get
+        ingested via the builtin provider first to obtain a library:// URI,
+        then the full ordered URI list is written to a fresh playlist.
+        """
+        async with self._session() as (ws, mid):
+            # 1. Ingest each DJ MP3 URL into MA's library; record the
+            #    canonical URI we get back so we can substitute it into
+            #    the ordered list.
+            url_to_uri: dict[str, str] = {}
+            for url in dj_mp3_urls:
+                r = await _call(ws, mid, "music/library/add_item", item=url)
+                lib_uri = (r.get("result") or {}).get("uri")
+                if not lib_uri:
+                    raise RuntimeError(f"MA add_item({url}) returned no URI: {r!r}")
+                url_to_uri[url] = lib_uri
+
+            final_uris = [url_to_uri.get(u, u) for u in ordered_uris]
+
+            # 2. Create the playlist (provider=builtin so it's MA-managed).
+            r = await _call(ws, mid, "music/playlists/create_playlist",
+                            name=name, provider_instance_or_domain="builtin")
+            pl = r.get("result") or {}
+            pid = pl.get("item_id")
+            if not pid:
+                raise RuntimeError(f"MA create_playlist returned no item_id: {r!r}")
+
+            # 3. Append all items.
+            r = await _call(ws, mid, "music/playlists/add_playlist_tracks",
+                            db_playlist_id=pid, uris=final_uris)
+            # The add is async on MA's side; we don't block on it here.
+
+        return {
+            "playlist_id": pid,
+            "playlist_uri": pl.get("uri"),
+            "playlist_name": pl.get("name"),
+            "queued_uris": len(final_uris),
+        }
+
     @asynccontextmanager
     async def _session(self):
         ids = itertools.count(1)

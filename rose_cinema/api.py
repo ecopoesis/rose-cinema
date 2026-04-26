@@ -26,7 +26,7 @@ from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
     GenerateRequest, PlaylistRunResponse, PlaylistEntryResponse,
-    MAPlayRequest, MAPlayResponse,
+    MAPlayRequest, MAPlayResponse, MASaveResponse,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -311,6 +311,55 @@ async def play_run(
 
     await client.play_media(player_id=player_id, media_uris=uris, option=body.option)
     return MAPlayResponse(player_id=player_id, queued=len(uris), uris=uris)
+
+
+@app.post("/api/runs/{run_id}/save-to-ma", response_model=MASaveResponse)
+async def save_run_to_ma(
+    run_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    repo = SqlitePlaylistRunRepository(session)
+    run = await repo.get(run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    if not run.playlist_json:
+        raise HTTPException(400, "Run has no playlist yet")
+
+    client = get_music_assistant_client()
+    if client is None:
+        raise HTTPException(503, "Music Assistant not configured")
+    if not settings.public_base_url:
+        raise HTTPException(503, "PUBLIC_BASE_URL not configured")
+
+    # Look up the station so we can name the playlist
+    station_repo = SqliteStationRepository(session)
+    station = await station_repo.get(run.station_id)
+    station_name = station.name if station else "Unknown station"
+
+    base = settings.public_base_url.rstrip("/")
+    ordered: list[str] = []
+    dj_urls: list[str] = []
+    apple_uris: list[str] = []
+    for e in json.loads(run.playlist_json):
+        if e.get("type") == "song" and e.get("apple_music_id"):
+            uri = f"apple_music://track/{e['apple_music_id']}"
+            ordered.append(uri); apple_uris.append(uri)
+        elif e.get("type") == "dj" and e.get("audio_file"):
+            url = f"{base}/audio/{Path(e['audio_file']).name}"
+            ordered.append(url); dj_urls.append(url)
+
+    if not ordered:
+        raise HTTPException(400, "Run has no playable entries")
+
+    from datetime import datetime
+    name = f"{station_name} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    out = await client.save_as_playlist(
+        name=name,
+        apple_music_uris=apple_uris,
+        dj_mp3_urls=dj_urls,
+        ordered_uris=ordered,
+    )
+    return MASaveResponse(**out)
 
 
 # ── Health ─────────────────────────────────────────────────────────────

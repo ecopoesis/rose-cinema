@@ -114,3 +114,10 @@ class MAPlayResponse(BaseModel):
     player_id: str
     queued: int
     uris: list[str]
+
+
+class MASaveResponse(BaseModel):
+    playlist_id: str
+    playlist_uri: str
+    playlist_name: str
+    queued_uris: int
