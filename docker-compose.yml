@@ -1,0 +1,39 @@
+services:
+  radiobot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rose-cinema
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./agents:/app/agents
+    env_file:
+      - .env
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    networks:
+      - rose-net
+      # Host network access needed for pyatv mDNS discovery
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rose-cinema-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - rose-net
+
+volumes:
+  ollama_data:
+
+networks:
+  rose-net:
+    driver: bridge
