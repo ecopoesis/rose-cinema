@@ -49,6 +49,8 @@ class Station(Base):
         String(36), ForeignKey("djs.id"), nullable=True
     )
 
+    max_playlists: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
     # Music source — flexible: could be genre, playlist ID, artist list, etc.
     music_source: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
@@ -58,7 +60,9 @@ class Station(Base):
     )
 
     dj: Mapped[DJ | None] = relationship(back_populates="stations")
-    playlist_runs: Mapped[list[PlaylistRun]] = relationship(back_populates="station")
+    playlist_runs: Mapped[list[PlaylistRun]] = relationship(
+        back_populates="station", cascade="all, delete-orphan"
+    )
 
 
 class PlaylistRun(Base):
@@ -75,6 +79,7 @@ class PlaylistRun(Base):
     )  # pending, generating, ready, playing, failed
     playlist_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ma_playlist_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     station: Mapped[Station] = relationship(back_populates="playlist_runs")

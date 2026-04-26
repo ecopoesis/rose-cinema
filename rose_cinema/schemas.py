@@ -38,6 +38,7 @@ class StationCreate(BaseModel):
     dj_talk_rate: float = Field(default=0.3, ge=0.0, le=1.0)
     dj_babble_rate: float = Field(default=0.5, ge=0.0, le=1.0)
     dj_max_length_secs: int = Field(default=30, ge=5, le=120)
+    max_playlists: int = Field(default=0, ge=0)
     dj_id: str | None = None
     music_source: str = Field(default="")
 
@@ -49,6 +50,7 @@ class StationUpdate(BaseModel):
     dj_talk_rate: float | None = Field(default=None, ge=0.0, le=1.0)
     dj_babble_rate: float | None = Field(default=None, ge=0.0, le=1.0)
     dj_max_length_secs: int | None = Field(default=None, ge=5, le=120)
+    max_playlists: int | None = Field(default=None, ge=0)
     dj_id: str | None = None
     music_source: str | None = None
 
@@ -61,6 +63,7 @@ class StationResponse(BaseModel):
     dj_talk_rate: float
     dj_babble_rate: float
     dj_max_length_secs: int
+    max_playlists: int
     dj_id: str | None
     music_source: str
 
@@ -121,3 +124,36 @@ class MASaveResponse(BaseModel):
     playlist_uri: str
     playlist_name: str
     queued_uris: int
+
+
+# ── Export / Import ───────────────────────────────────────────────────
+
+
+class DJExport(BaseModel):
+    name: str
+    agent_md: str = ""
+    tts_provider: str = "piper"
+    tts_voice_id: str = "en_US-lessac-medium"
+
+
+class StationExport(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = ""
+    length_minutes: int = Field(default=60, ge=5, le=480)
+    dj_talk_rate: float = Field(default=0.3, ge=0.0, le=1.0)
+    dj_babble_rate: float = Field(default=0.5, ge=0.0, le=1.0)
+    dj_max_length_secs: int = Field(default=30, ge=5, le=120)
+    max_playlists: int = Field(default=0, ge=0)
+    music_source: str = ""
+    dj_name: str | None = None
+
+
+class ExportData(BaseModel):
+    djs: list[DJExport] = []
+    stations: list[StationExport] = []
+
+
+class ImportResult(BaseModel):
+    djs_created: int
+    djs_skipped: int
+    stations_created: int

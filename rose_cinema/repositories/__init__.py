@@ -25,6 +25,7 @@ class StationRecord:
     dj_talk_rate: float = 0.3
     dj_babble_rate: float = 0.5
     dj_max_length_secs: int = 30
+    max_playlists: int = 0
     dj_id: str | None = None
     music_source: str = ""
 
@@ -36,6 +37,7 @@ class PlaylistRunRecord:
     status: str = "pending"
     playlist_json: str = "[]"
     error_message: str | None = None
+    ma_playlist_id: str | None = None
 
 
 # ── Repository interfaces ──────────────────────────────────────────────
@@ -87,3 +89,6 @@ class PlaylistRunRepository(ABC):
 
     @abstractmethod
     async def update(self, record: PlaylistRunRecord) -> PlaylistRunRecord: ...
+
+    @abstractmethod
+    async def delete(self, run_id: str) -> bool: ...

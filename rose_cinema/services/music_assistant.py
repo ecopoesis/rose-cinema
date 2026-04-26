@@ -69,6 +69,15 @@ class MusicAssistantClient:
         if r.get("error"):
             raise RuntimeError(f"MA play_media failed: {r['error']}")
 
+    async def remove_playlist(self, playlist_id: str) -> None:
+        async with self._session() as (ws, mid):
+            r = await _call(
+                ws, mid, "music/playlists/remove_playlist",
+                db_playlist_id=playlist_id,
+            )
+            if r.get("error"):
+                raise RuntimeError(f"MA remove_playlist failed: {r['error']}")
+
     async def save_as_playlist(
         self,
         name: str,

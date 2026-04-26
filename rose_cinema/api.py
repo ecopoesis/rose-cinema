@@ -28,6 +28,7 @@ from rose_cinema.schemas import (
     StationCreate, StationUpdate, StationResponse,
     GenerateRequest, PlaylistRunResponse, PlaylistEntryResponse,
     MAPlayRequest, MAPlayResponse, MASaveResponse,
+    DJExport, StationExport, ExportData, ImportResult,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -99,8 +100,14 @@ async def update_dj(
 @app.delete("/api/djs/{dj_id}", status_code=204)
 async def delete_dj(dj_id: str, session: AsyncSession = Depends(get_session)):
     repo = SqliteDJRepository(session)
-    if not await repo.delete(dj_id):
+    if not await repo.get(dj_id):
         raise HTTPException(404, "DJ not found")
+    station_repo = SqliteStationRepository(session)
+    for s in await station_repo.list_all():
+        if s.dj_id == dj_id:
+            s.dj_id = None
+            await station_repo.update(s)
+    await repo.delete(dj_id)
 
 
 # ── Station endpoints ──────────────────────────────────────────────────
@@ -134,6 +141,7 @@ async def create_station(
         dj_talk_rate=body.dj_talk_rate,
         dj_babble_rate=body.dj_babble_rate,
         dj_max_length_secs=body.dj_max_length_secs,
+        max_playlists=body.max_playlists,
         dj_id=body.dj_id,
         music_source=body.music_source,
     ))
@@ -151,7 +159,7 @@ async def update_station(
 
     for field_name in (
         "name", "description", "length_minutes", "dj_talk_rate",
-        "dj_babble_rate", "dj_max_length_secs", "dj_id", "music_source",
+        "dj_babble_rate", "dj_max_length_secs", "max_playlists", "dj_id", "music_source",
     ):
         val = getattr(body, field_name)
         if val is not None:
@@ -166,8 +174,18 @@ async def delete_station(
     station_id: str, session: AsyncSession = Depends(get_session)
 ):
     repo = SqliteStationRepository(session)
-    if not await repo.delete(station_id):
+    if not await repo.get(station_id):
         raise HTTPException(404, "Station not found")
+
+    run_repo = SqlitePlaylistRunRepository(session)
+    runs = await run_repo.list_by_station(station_id)
+    if runs:
+        from rose_cinema.services.cleanup import cleanup_run
+        ma_client = get_music_assistant_client()
+        for run in runs:
+            await cleanup_run(run, run_repo, settings.dj_audio_dir, ma_client)
+
+    await repo.delete(station_id)
 
 
 # ── Playlist generation ───────────────────────────────────────────────
@@ -361,7 +379,91 @@ async def save_run_to_ma(
         dj_mp3_urls=dj_urls,
         ordered_uris=ordered,
     )
+
+    run.ma_playlist_id = out["playlist_id"]
+    await repo.update(run)
+
+    if station and station.max_playlists > 0:
+        from rose_cinema.services.cleanup import trim_station_runs
+        await trim_station_runs(
+            station_id=run.station_id,
+            max_playlists=station.max_playlists,
+            run_repo=repo,
+            audio_dir=settings.dj_audio_dir,
+            ma_client=client,
+        )
+
     return MASaveResponse(**out)
+
+
+# ── Export / Import ───────────────────────────────────────────────
+
+
+@app.get("/api/export", response_model=ExportData)
+async def export_all(session: AsyncSession = Depends(get_session)):
+    dj_repo = SqliteDJRepository(session)
+    station_repo = SqliteStationRepository(session)
+    all_djs = await dj_repo.list_all()
+    all_stations = await station_repo.list_all()
+    dj_map = {d.id: d.name for d in all_djs}
+    return ExportData(
+        djs=[
+            DJExport(
+                name=d.name, agent_md=d.agent_md,
+                tts_provider=d.tts_provider, tts_voice_id=d.tts_voice_id,
+            )
+            for d in all_djs
+        ],
+        stations=[
+            StationExport(
+                name=s.name, description=s.description,
+                length_minutes=s.length_minutes, dj_talk_rate=s.dj_talk_rate,
+                dj_babble_rate=s.dj_babble_rate, dj_max_length_secs=s.dj_max_length_secs,
+                max_playlists=s.max_playlists, music_source=s.music_source,
+                dj_name=dj_map.get(s.dj_id) if s.dj_id else None,
+            )
+            for s in all_stations
+        ],
+    )
+
+
+@app.post("/api/import", response_model=ImportResult)
+async def import_all(body: ExportData, session: AsyncSession = Depends(get_session)):
+    dj_repo = SqliteDJRepository(session)
+    station_repo = SqliteStationRepository(session)
+
+    existing_djs = await dj_repo.list_all()
+    dj_name_map = {d.name: d.id for d in existing_djs}
+
+    djs_created = 0
+    djs_skipped = 0
+    for dj_data in body.djs:
+        if dj_data.name in dj_name_map:
+            djs_skipped += 1
+            continue
+        record = await dj_repo.create(DJRecord(
+            name=dj_data.name, agent_md=dj_data.agent_md,
+            tts_provider=dj_data.tts_provider, tts_voice_id=dj_data.tts_voice_id,
+        ))
+        dj_name_map[record.name] = record.id
+        djs_created += 1
+
+    stations_created = 0
+    for s in body.stations:
+        dj_id = dj_name_map.get(s.dj_name) if s.dj_name else None
+        await station_repo.create(StationRecord(
+            name=s.name, description=s.description,
+            length_minutes=s.length_minutes, dj_talk_rate=s.dj_talk_rate,
+            dj_babble_rate=s.dj_babble_rate, dj_max_length_secs=s.dj_max_length_secs,
+            max_playlists=s.max_playlists, dj_id=dj_id, music_source=s.music_source,
+        ))
+        stations_created += 1
+
+    return ImportResult(
+        djs_created=djs_created,
+        djs_skipped=djs_skipped,
+        stations_created=stations_created,
+    )
 
 
 # ── Health ─────────────────────────────────────────────────────────────
@@ -375,6 +477,8 @@ async def health():
 # ── Web UI (must be mounted last so it doesn't shadow /api routes) ────
 
 
-_web_dir = Path(__file__).resolve().parent.parent / "web"
+_web_dist = Path(__file__).resolve().parent.parent / "web" / "dist"
+_web_fallback = Path(__file__).resolve().parent.parent / "web"
+_web_dir = _web_dist if _web_dist.is_dir() else _web_fallback
 if _web_dir.is_dir():
     app.mount("/", StaticFiles(directory=str(_web_dir), html=True), name="web")

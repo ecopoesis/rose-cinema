@@ -36,6 +36,7 @@ def _station_to_record(s: Station) -> StationRecord:
         dj_talk_rate=s.dj_talk_rate,
         dj_babble_rate=s.dj_babble_rate,
         dj_max_length_secs=s.dj_max_length_secs,
+        max_playlists=s.max_playlists,
         dj_id=s.dj_id,
         music_source=s.music_source,
     )
@@ -48,6 +49,7 @@ def _run_to_record(r: PlaylistRun) -> PlaylistRunRecord:
         status=r.status,
         playlist_json=r.playlist_json,
         error_message=r.error_message,
+        ma_playlist_id=r.ma_playlist_id,
     )
 
 
@@ -122,6 +124,7 @@ class SqliteStationRepository(StationRepository):
             dj_talk_rate=record.dj_talk_rate,
             dj_babble_rate=record.dj_babble_rate,
             dj_max_length_secs=record.dj_max_length_secs,
+            max_playlists=record.max_playlists,
             dj_id=record.dj_id,
             music_source=record.music_source,
         )
@@ -140,6 +143,7 @@ class SqliteStationRepository(StationRepository):
         obj.dj_talk_rate = record.dj_talk_rate
         obj.dj_babble_rate = record.dj_babble_rate
         obj.dj_max_length_secs = record.dj_max_length_secs
+        obj.max_playlists = record.max_playlists
         obj.dj_id = record.dj_id
         obj.music_source = record.music_source
         await self._session.commit()
@@ -192,6 +196,15 @@ class SqlitePlaylistRunRepository(PlaylistRunRepository):
         obj.status = record.status
         obj.playlist_json = record.playlist_json
         obj.error_message = record.error_message
+        obj.ma_playlist_id = record.ma_playlist_id
         await self._session.commit()
         await self._session.refresh(obj)
         return _run_to_record(obj)
+
+    async def delete(self, run_id: str) -> bool:
+        obj = await self._session.get(PlaylistRun, run_id)
+        if not obj:
+            return False
+        await self._session.delete(obj)
+        await self._session.commit()
+        return True

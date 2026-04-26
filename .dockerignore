@@ -1,11 +1,9 @@
-.omc/
-.env
+.venv/
 __pycache__/
 *.pyc
-.pytest_cache/
-.venv/
-*.egg-info/
 data/
-.keys/
 web/node_modules/
 web/dist/
+.env
+.git/
+.pytest_cache/

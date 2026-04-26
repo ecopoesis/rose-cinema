@@ -1,3 +1,11 @@
+FROM node:20-slim AS frontend
+
+WORKDIR /build
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci
+COPY web/ .
+RUN npm run build
+
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -22,7 +30,11 @@ voices = ['cori-high', 'kristin', 'bryce', 'norman', 'mv2', 'jenny']; \
 print(f'fetched {len(voices)} voices')"
 RUN cd /app/data/piper_models && python -m piper.download_voices en_US-lessac-medium
 
-COPY . .
+COPY rose_cinema/ rose_cinema/
+COPY alembic/ alembic/
+COPY alembic.ini .
+COPY agents/ agents/
+COPY --from=frontend /build/dist/ web/dist/
 
 EXPOSE 8000
 
