@@ -99,13 +99,13 @@ This is what's deployed to `server03` today.
    PUBLIC_BASE_URL=http://<your-server>:8765   # how MA fetches DJ MP3s back from radiobot
    ```
 
-5. Pull the LLM model into the Ollama stack (one-time, ~21 GB):
+5. Pull the LLM model into the Ollama stack (one-time, ~18 GB):
 
    ```bash
-   docker exec ollama ollama pull qwen3.6:35b-a3b
+   docker exec ollama ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M
    ```
 
-   This is the MoE variant of Qwen3.6 — 35B total parameters but only 3B active per token, so per-token CPU inference is roughly an order of magnitude faster than the dense `qwen3.6:27b` / `:35b` variants.
+   This is the Qwen3 30B MoE — 30B total parameters but only 3B active per token, so per-token CPU inference is roughly an order of magnitude faster than dense models of comparable quality. The newer `qwen3.6:35b-a3b` exists but its `q4_K_M` quant needs ~25 GiB to load — too big for a typical 16-32 GiB server unless you have GPU offload.
 
 6. Bootstrap a DJ and a station (until #7 builds the create-station UI):
 
