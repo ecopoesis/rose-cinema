@@ -29,7 +29,8 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 - `LLMProvider` / `TTSProvider` — abstract base classes in `providers/__init__.py`
 - `MusicCatalog` (abstract) / `MusicKitCatalog` (concrete) — `services/catalog.py` + `services/musickit.py`
 - `DJRepository` / `StationRepository` / `PlaylistRunRepository` — abstract in `repositories/__init__.py`
-- `TrackPicker` — `services/track_picker.py`. LLM proposes → catalog verifies → per-artist cap.
+- `SeedPoolBuilder` — `services/seed_pool.py`. Resolves `music_source` to an artist (or to an artist via track-name lookup, or to genre IDs via an LLM theme map). Fans out via Apple Music's `similar-artists` and `top-songs` views (or genre charts) into a catalog-grounded candidate pool. In-memory TTL cache (24h). Falls through to legacy LLM-discovery only when nothing resolves.
+- `TrackPicker` — `services/track_picker.py`. With a pool: LLM picks indices, then per-artist cap (2) + deterministic top-up. Without a pool (fallback): legacy LLM-proposes → MusicKit verifies → cap.
 - `StationBuilder` — `services/station_builder.py`. Takes the verified tracklist, decides DJ-segment placement (`should_talk` rolls dice on `talk_rate`), generates scripts, synthesizes audio, returns the `PlaylistEntry` list.
 - `DJScriptService` — `services/dj_script.py`. Verbosity scales with `babble_rate`; injects DJ personality from `agent_md`.
 - `MusicAssistantClient` — `services/music_assistant.py`. One-shot WS client: `play_media` (live queue) and `save_as_playlist` (DJ MP3s ingested as `library://track/<id>` via the builtin provider, then mixed with `apple_music://track/<id>` URIs into an MA playlist).

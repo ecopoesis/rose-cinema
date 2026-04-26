@@ -20,6 +20,7 @@ from rose_cinema.providers.factory import get_llm_provider
 from rose_cinema.services.station_builder import StationBuilder, SongMetadata
 from rose_cinema.services.track_picker import TrackPicker
 from rose_cinema.services.musickit import get_music_catalog
+from rose_cinema.services.seed_pool import SeedPoolBuilder
 from rose_cinema.services.music_assistant import get_music_assistant_client
 from pathlib import Path
 from rose_cinema.schemas import (
@@ -216,9 +217,10 @@ async def generate_playlist(
                     400, "Station has no music_source and no songs were provided"
                 )
             catalog = get_music_catalog()
+            seed_builder = SeedPoolBuilder(catalog, llm) if catalog else None
             if catalog is None:
-                logger.warning("MusicKit catalog not configured — track verification disabled")
-            songs = await TrackPicker(llm, catalog).pick(
+                logger.warning("MusicKit catalog not configured — pool grounding disabled, falling back to LLM-discovery")
+            songs = await TrackPicker(llm, catalog, seed_builder).pick(
                 music_source=station.music_source,
                 target_minutes=station.length_minutes,
             )

@@ -6,6 +6,7 @@ import re
 
 from rose_cinema.providers import LLMMessage, LLMProvider
 from rose_cinema.services.catalog import CatalogTrack, MusicCatalog
+from rose_cinema.services.seed_pool import SeedPool, SeedPoolBuilder
 from rose_cinema.services.station_builder import SongMetadata
 
 logger = logging.getLogger(__name__)
@@ -25,12 +26,36 @@ def _extract_json_array(text: str) -> str:
     return text[start : end + 1]
 
 
-class TrackPicker:
-    """Use the LLM to assemble a tracklist seeded by a station's music_source."""
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
-    def __init__(self, llm: LLMProvider, catalog: MusicCatalog | None = None):
+
+def _extract_json_object(text: str) -> str:
+    m = _JSON_OBJECT_RE.search(text)
+    if not m:
+        raise ValueError(f"no JSON object in: {text[:200]!r}")
+    return m.group(0)
+
+
+class TrackPicker:
+    """Assemble a tracklist from a station's music_source.
+
+    Two modes:
+      1. Pool mode (preferred): SeedPoolBuilder produces a candidate pool of
+         catalog-grounded real tracks; the LLM curates indices from it.
+      2. Legacy LLM-discovery mode (fallback): LLM proposes tracks from its
+         training, optional MusicCatalog verifies them. Used when the seed
+         doesn't resolve into any catalog grounding.
+    """
+
+    def __init__(
+        self,
+        llm: LLMProvider,
+        catalog: MusicCatalog | None = None,
+        seed_builder: SeedPoolBuilder | None = None,
+    ):
         self._llm = llm
         self._catalog = catalog
+        self._seed_builder = seed_builder
 
     async def pick(
         self,
@@ -40,6 +65,115 @@ class TrackPicker:
     ) -> list[SongMetadata]:
         target_count = max(3, round((target_minutes * 60) / avg_song_secs))
 
+        if self._seed_builder is not None:
+            pool = await self._seed_builder.build(music_source, target_count)
+            if pool.tracks:
+                return await self._pick_from_pool(pool, music_source, target_count)
+            logger.info("seed_pool empty for %r — falling back to LLM-discovery", music_source)
+
+        return await self._pick_from_llm_discovery(music_source, target_count)
+
+    # ── Pool-curation path ─────────────────────────────────────────────
+
+    async def _pick_from_pool(
+        self,
+        pool: SeedPool,
+        music_source: str,
+        target_count: int,
+    ) -> list[SongMetadata]:
+        listing = "\n".join(
+            f"  {i} | {t.title} — {t.artist} ({t.year or '?'}) [{t.album or '?'}]"
+            for i, t in enumerate(pool.tracks)
+        )
+
+        seed_hint = (
+            f" The seed artist is {pool.seed_artist.name}; cap at 2 picks from them."
+            if pool.seed_artist else ""
+        )
+
+        system = (
+            f"You curate a {target_count}-track radio set from a fixed numbered pool.\n"
+            f"Output ONLY this JSON: {{\"picks\":[<int>,<int>,...]}} with exactly {target_count} indices.\n"
+            "RULES:\n"
+            f"- Indices must be in [0, {len(pool.tracks) - 1}].\n"
+            "- Same artist no more than twice across the picks.\n"
+            f"-{seed_hint}\n"
+            "- Span eras: when the pool offers a year range, prefer mixing.\n"
+            "- Order for arc: opener with energy, mid section deeper cuts, closer that resolves.\n"
+            "No commentary, no extra keys."
+        )
+        user = (
+            f"Seed: {music_source}\n\n"
+            f"Pool:\n{listing}\n\n"
+            f"Pick exactly {target_count} indices."
+        )
+
+        raw = await self._llm.complete(
+            messages=[LLMMessage("system", system), LLMMessage("user", user)],
+            temperature=0.5,
+            max_tokens=600,
+        )
+        logger.debug("TrackPicker pool curation raw: %s", raw)
+
+        try:
+            obj = json.loads(_extract_json_object(raw))
+            picks_raw = obj.get("picks") or []
+        except Exception:
+            logger.warning("LLM curation produced unparsable output: %r", raw[:200])
+            picks_raw = []
+
+        seen_ids: set[str] = set()
+        picked: list[SongMetadata] = []
+        for v in picks_raw:
+            try:
+                i = int(v)
+            except (TypeError, ValueError):
+                continue
+            if i < 0 or i >= len(pool.tracks):
+                continue
+            t = pool.tracks[i]
+            if t.apple_music_id in seen_ids:
+                continue
+            seen_ids.add(t.apple_music_id)
+            picked.append(_track_to_song(t))
+
+        # Apply the per-artist cap on the LLM's picks first.
+        capped = _cap_per_artist(picked, max_per_artist=2)
+        # Track what survived so we don't double-count during top-up.
+        seen_ids = {s.apple_music_id for s in capped if s.apple_music_id}
+        artist_counts: dict[str, int] = {}
+        for s in capped:
+            k = s.artist.lower().strip()
+            artist_counts[k] = artist_counts.get(k, 0) + 1
+
+        # Top up from the round-robin pool order if we came up short.
+        if len(capped) < target_count:
+            shortfall = target_count - len(capped)
+            for t in pool.tracks:
+                if shortfall <= 0:
+                    break
+                if t.apple_music_id and t.apple_music_id in seen_ids:
+                    continue
+                k = t.artist.lower().strip()
+                if artist_counts.get(k, 0) >= 2:
+                    continue
+                capped.append(_track_to_song(t))
+                seen_ids.add(t.apple_music_id)
+                artist_counts[k] = artist_counts.get(k, 0) + 1
+                shortfall -= 1
+            if shortfall > 0:
+                logger.info(
+                    "Pool top-up couldn't reach target %d — settled at %d (pool size %d)",
+                    target_count, len(capped), len(pool.tracks),
+                )
+
+        return capped
+
+    # ── Legacy LLM-discovery path (kept for fallback) ─────────────────
+
+    async def _pick_from_llm_discovery(
+        self, music_source: str, target_count: int,
+    ) -> list[SongMetadata]:
         system = (
             "You are a music programmer for a radio station. Given a seed track, "
             "artist, or theme, produce a coherent tracklist that fits thematically "
@@ -61,7 +195,7 @@ class TrackPicker:
         )
         user = (
             f"Seed: {music_source}\n"
-            f"Target: about {target_minutes} minutes of music ({target_count} songs).\n"
+            f"Target: about {target_count} songs.\n"
             f"Return the JSON array now."
         )
 
@@ -113,19 +247,21 @@ class TrackPicker:
             if best is None:
                 logger.info("Dropped hallucinated track: %s — %s", p.artist, p.title)
                 continue
-            verified.append(
-                SongMetadata(
-                    title=best.title,
-                    artist=best.artist,
-                    album=best.album,
-                    year=best.year,
-                    apple_music_id=best.apple_music_id,
-                    duration_secs=best.duration_secs or p.duration_secs,
-                )
-            )
+            verified.append(_track_to_song(best, fallback_duration=p.duration_secs))
         if not verified:
             raise ValueError("All proposed tracks failed catalog verification")
         return verified
+
+
+def _track_to_song(t: CatalogTrack, *, fallback_duration: float = 0.0) -> SongMetadata:
+    return SongMetadata(
+        title=t.title,
+        artist=t.artist,
+        album=t.album,
+        year=t.year,
+        apple_music_id=t.apple_music_id,
+        duration_secs=t.duration_secs or fallback_duration,
+    )
 
 
 def _cap_per_artist(songs: list[SongMetadata], max_per_artist: int) -> list[SongMetadata]:

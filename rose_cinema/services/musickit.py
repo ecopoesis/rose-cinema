@@ -8,7 +8,12 @@ import httpx
 import jwt
 
 from rose_cinema.config import settings
-from rose_cinema.services.catalog import CatalogTrack, MusicCatalog
+from rose_cinema.services.catalog import (
+    CatalogArtist,
+    CatalogArtistViews,
+    CatalogTrack,
+    MusicCatalog,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,39 +47,139 @@ class MusicKitTokenSigner:
         return self._token
 
 
+def _track_from_payload(item: dict) -> CatalogTrack:
+    attrs = item.get("attributes") or {}
+    duration_ms = attrs.get("durationInMillis", 0) or 0
+    return CatalogTrack(
+        apple_music_id=item.get("id", ""),
+        title=attrs.get("name", ""),
+        artist=attrs.get("artistName", ""),
+        album=attrs.get("albumName", ""),
+        year=(attrs.get("releaseDate") or "")[:4],
+        duration_secs=duration_ms / 1000.0,
+    )
+
+
+def _artist_from_payload(item: dict) -> CatalogArtist:
+    attrs = item.get("attributes") or {}
+    genres = attrs.get("genreNames") or []
+    return CatalogArtist(
+        apple_music_id=item.get("id", ""),
+        name=attrs.get("name", ""),
+        genres=tuple(genres),
+    )
+
+
 class MusicKitCatalog(MusicCatalog):
-    """Apple Music catalog search via the MusicKit REST API."""
+    """Apple Music catalog over the MusicKit REST API.
+
+    Uses a developer JWT only (no MusicUserToken needed for catalog reads).
+    Single shared httpx.AsyncClient per call — fine at current call volume
+    (~13 reqs per generate). Wrap with asyncio.Semaphore at the caller if
+    fan-out grows.
+    """
 
     def __init__(self, signer: MusicKitTokenSigner, storefront: str = "us"):
         self._signer = signer
         self._storefront = storefront
+        self._genres_cache: dict[str, str] | None = None
 
-    async def search(self, query: str, limit: int = 5) -> list[CatalogTrack]:
-        url = f"{_API_BASE}/catalog/{self._storefront}/search"
-        async with httpx.AsyncClient(timeout=10.0) as client:
+    async def _get(self, path: str, params: dict | None = None) -> dict:
+        url = f"{_API_BASE}{path}"
+        async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
-                url,
-                params={"term": query, "types": "songs", "limit": limit},
+                url, params=params,
                 headers={"Authorization": f"Bearer {self._signer.token()}"},
             )
         if resp.status_code != 200:
-            logger.warning("MusicKit search %r -> %d: %s", query, resp.status_code, resp.text[:200])
-            return []
-        songs = resp.json().get("results", {}).get("songs", {}).get("data", [])
-        out: list[CatalogTrack] = []
-        for s in songs:
-            attrs = s.get("attributes", {})
-            duration_ms = attrs.get("durationInMillis", 0) or 0
-            out.append(
-                CatalogTrack(
-                    apple_music_id=s.get("id", ""),
-                    title=attrs.get("name", ""),
-                    artist=attrs.get("artistName", ""),
-                    album=attrs.get("albumName", ""),
-                    year=(attrs.get("releaseDate") or "")[:4],
-                    duration_secs=duration_ms / 1000.0,
-                )
+            logger.warning("MusicKit %s %r -> %d: %s", path, params, resp.status_code, resp.text[:200])
+            return {}
+        return resp.json()
+
+    # ── existing surface ───────────────────────────────────────────────
+
+    async def search(self, query: str, limit: int = 5) -> list[CatalogTrack]:
+        body = await self._get(
+            f"/catalog/{self._storefront}/search",
+            {"term": query, "types": "songs", "limit": limit},
+        )
+        songs = (body.get("results") or {}).get("songs", {}).get("data", [])
+        return [_track_from_payload(s) for s in songs]
+
+    # ── discovery surface ──────────────────────────────────────────────
+
+    async def search_artists(self, query: str, limit: int = 5) -> list[CatalogArtist]:
+        body = await self._get(
+            f"/catalog/{self._storefront}/search",
+            {"term": query, "types": "artists", "limit": limit},
+        )
+        artists = (body.get("results") or {}).get("artists", {}).get("data", [])
+        return [_artist_from_payload(a) for a in artists]
+
+    async def get_artist_views(
+        self,
+        artist_id: str,
+        *,
+        top_songs: int = 10,
+        similar_artists: int = 10,
+    ) -> CatalogArtistViews:
+        views = []
+        params: dict = {}
+        if top_songs > 0:
+            views.append("top-songs")
+            params["limit[artists:top-songs]"] = top_songs
+        if similar_artists > 0:
+            views.append("similar-artists")
+            params["limit[artists:similar-artists]"] = similar_artists
+        if views:
+            params["views"] = ",".join(views)
+
+        body = await self._get(f"/catalog/{self._storefront}/artists/{artist_id}", params)
+        data = body.get("data") or []
+        if not data:
+            return CatalogArtistViews(
+                artist=CatalogArtist(apple_music_id=artist_id, name=""),
             )
+        seed_payload = data[0]
+        seed = _artist_from_payload(seed_payload)
+        view_data = seed_payload.get("views") or {}
+        top = [
+            _track_from_payload(t)
+            for t in (view_data.get("top-songs", {}).get("data") or [])
+        ]
+        sim = [
+            _artist_from_payload(a)
+            for a in (view_data.get("similar-artists", {}).get("data") or [])
+        ]
+        return CatalogArtistViews(artist=seed, top_songs=top, similar_artists=sim)
+
+    async def list_genres(self) -> dict[str, str]:
+        if self._genres_cache is not None:
+            return self._genres_cache
+        body = await self._get(
+            f"/catalog/{self._storefront}/genres", {"limit": 200},
+        )
+        data = body.get("data") or []
+        out: dict[str, str] = {}
+        for g in data:
+            name = (g.get("attributes") or {}).get("name") or ""
+            gid = g.get("id") or ""
+            if name and gid:
+                out[name] = gid
+        self._genres_cache = out
+        return out
+
+    async def get_genre_top_songs(self, genre_id: str, limit: int = 30) -> list[CatalogTrack]:
+        body = await self._get(
+            f"/catalog/{self._storefront}/charts",
+            {"types": "songs", "genre": genre_id, "limit": limit},
+        )
+        results = body.get("results") or {}
+        songs_blocks = results.get("songs") or []
+        out: list[CatalogTrack] = []
+        for block in songs_blocks:
+            for item in block.get("data") or []:
+                out.append(_track_from_payload(item))
         return out
 
 

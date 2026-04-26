@@ -1,6 +1,6 @@
 # Rose Cinema 🎙️📻
 
-AI-powered radio station generator. Picks tracks with an LLM (seeded by a station's `music_source`), verifies them against the Apple Music catalog, generates DJ patter in a chosen personality, synthesizes voice with Piper, and either:
+AI-powered radio station generator. Builds a candidate pool of real Apple Music tracks from a seed (artist, song, or theme — via MusicKit's `similar-artists` graph or genre charts), has an LLM curate the pool into an arc, generates DJ patter in a chosen personality, synthesizes voice with Piper, and either:
 
 - **Saves** the result as a playlist inside [Music Assistant](https://music-assistant.io/) — visible in MA's UI, playable any time to any AirPlay/Sonos/Chromecast/webplayer endpoint, or
 - **Plays** the result live by pushing the queue to a chosen MA player.
@@ -15,10 +15,13 @@ AI-powered radio station generator. Picks tracks with an LLM (seeded by a statio
             │                                  │             │
             │             ┌────────────────────┘             │
             │             ▼                                  │
-            │   TrackPicker ──► MusicKit catalog (verify)    │
+            │   SeedPoolBuilder ──► MusicKit catalog         │
+            │     (similar-artists graph / genre charts)     │
             │             │                                  │
-            │   DJScriptService ─► LLM (Ollama / OpenAI-     │
-            │             │         compatible)              │
+            │   TrackPicker ──► LLM curates pool indices     │
+            │                   (Ollama / OpenAI-compatible) │
+            │             │                                  │
+            │   DJScriptService ─► LLM (DJ patter)           │
             │             ▼                                  │
             │   PiperTTS  ─► data/dj_audio/*.mp3             │
             │             │                                  │
@@ -40,7 +43,7 @@ AI-powered radio station generator. Picks tracks with an LLM (seeded by a statio
 
 What's working:
 
-- ✅ LLM-driven track selection with **per-artist cap** + **MusicKit catalog verification** (drops hallucinated tracks, replaces metadata with canonical Apple Music IDs)
+- ✅ **Hybrid track selection**: SeedPoolBuilder produces a catalog-grounded pool (artist's top-songs + similar-artists' top-songs, or theme→genre charts); LLM curates indices from the pool. Per-artist cap (2) plus deterministic top-up keeps playlists at target length even when the LLM piles up favorites. Hallucination-impossible by construction.
 - ✅ DJ scripts scaled by `babble_rate`, voiced via Piper (incl. Bryce Beattie's narrator set: `cori-high`, `kristin`, `bryce`, `norman`, `mv2`, `jenny`)
 - ✅ Music Assistant integration — save full playlist (DJs + Apple Music) as an MA library playlist; or push directly to a player queue
 - ✅ FastAPI + SQLite + Alembic; web UI at `/` (list stations, "Generate" button)
