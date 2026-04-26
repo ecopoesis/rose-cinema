@@ -3,11 +3,9 @@ services:
     image: ollama/ollama:latest
     container_name: ollama
     restart: unless-stopped
-    # Host networking so other stacks (rose-cinema, open-webui) can reach
-    # this on http://<host>:11434 without a shared Docker network.
     network_mode: host
     volumes:
-      - ollama_data:/root/.ollama
+      - /opt/containers/ollama:/root/.ollama
     environment:
       OLLAMA_KEEP_ALIVE: 30m
       OLLAMA_NUM_PARALLEL: 2
@@ -21,13 +19,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_BASE_URL: http://docker.internal
       WEBUI_AUTH: "true"
     volumes:
-      - open_webui_data:/app/backend/data
+      - /opt/containers/open-webui:/app/backend/data
     depends_on:
       - ollama
-
-volumes:
-  ollama_data:/opt/containers/ollama
-  open_webui_data:/opt/containers/open-webui
