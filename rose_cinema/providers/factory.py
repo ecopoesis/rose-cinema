@@ -6,6 +6,7 @@ from rose_cinema.providers.llm_openai_compat import OpenAICompatibleLLM
 from rose_cinema.providers.tts_piper import PiperTTS
 from rose_cinema.providers.tts_elevenlabs import ElevenLabsTTS
 from rose_cinema.providers.tts_openai import OpenAITTS
+from rose_cinema.providers.tts_chatterbox import ChatterboxTTS
 
 
 def get_llm_provider() -> LLMProvider:
@@ -33,5 +34,7 @@ def get_tts_provider(provider_name: str | None = None, api_key: str | None = Non
             return ElevenLabsTTS(api_key=key)
         case "openai":
             return OpenAITTS(api_key=key)
+        case "chatterbox":
+            return ChatterboxTTS()
         case _:
             raise ValueError(f"Unknown TTS provider: {name}")

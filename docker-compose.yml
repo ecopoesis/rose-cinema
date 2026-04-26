@@ -24,6 +24,7 @@ services:
       MA_TOKEN: ${MA_TOKEN:-}
       MA_DEFAULT_PLAYER_ID: ${MA_DEFAULT_PLAYER_ID:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      CHATTERBOX_URL: ${CHATTERBOX_URL:-http://host.docker.internal:8004}
     extra_hosts:
       # Reach the host (where Ollama and Music Assistant run as separate stacks)
       - "host.docker.internal:host-gateway"

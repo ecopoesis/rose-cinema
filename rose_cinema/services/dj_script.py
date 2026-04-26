@@ -19,17 +19,35 @@ def _estimate_word_count(max_seconds: float, babble_rate: float) -> int:
 
 def build_system_prompt(dj: DJRecord, babble_rate: float, max_seconds: int) -> str:
     word_count = _estimate_word_count(max_seconds, babble_rate)
+    uses_chatterbox = dj.tts_provider == "chatterbox"
 
     base = (
         "You are a radio DJ. Your job is to introduce songs, provide transitions, "
         "and entertain listeners between tracks.\n\n"
         "RULES:\n"
-        "- Speak naturally as if on air. No stage directions, no sound effects in brackets.\n"
+    )
+
+    if uses_chatterbox:
+        base += "- Speak naturally as if on air. No stage directions or metadata.\n"
+    else:
+        base += "- Speak naturally as if on air. No stage directions, no sound effects in brackets.\n"
+
+    base += (
         "- Output ONLY what you would say out loud. No metadata, no labels.\n"
         f"- Keep your response to approximately {word_count} words.\n"
         "- Never say anything offensive or controversial.\n"
         "- Don't make up facts about songs. If you don't know, be vague.\n"
     )
+
+    if uses_chatterbox:
+        base += (
+            "\nVOICE EXPRESSION:\n"
+            "You can embed these tags in your speech for natural vocal expression: "
+            "[laugh], [chuckle], [sigh], [gasp], [cough], [clear throat], [sniff], "
+            "[groan], [shush]. Place them inline where the emotion fits — e.g. "
+            "\"That was incredible [laugh] I never get tired of that one.\" "
+            "Use them sparingly (1–3 per segment) so they feel genuine, not forced.\n"
+        )
 
     if babble_rate < 0.2:
         base += (

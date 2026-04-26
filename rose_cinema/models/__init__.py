@@ -23,6 +23,7 @@ class DJ(Base):
     agent_md: Mapped[str] = mapped_column(Text, nullable=False, default="")
     tts_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="piper")
     tts_voice_id: Mapped[str] = mapped_column(String(200), nullable=False, default="en_US-lessac-medium")
+    tts_voice_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

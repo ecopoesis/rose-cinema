@@ -24,6 +24,7 @@ def _dj_to_record(dj: DJ) -> DJRecord:
         agent_md=dj.agent_md,
         tts_provider=dj.tts_provider,
         tts_voice_id=dj.tts_voice_id,
+        tts_voice_ref=dj.tts_voice_ref or "",
     )
 
 
@@ -75,6 +76,7 @@ class SqliteDJRepository(DJRepository):
             agent_md=record.agent_md,
             tts_provider=record.tts_provider,
             tts_voice_id=record.tts_voice_id,
+            tts_voice_ref=record.tts_voice_ref or None,
         )
         self._session.add(obj)
         await self._session.commit()
@@ -89,6 +91,7 @@ class SqliteDJRepository(DJRepository):
         obj.agent_md = record.agent_md
         obj.tts_provider = record.tts_provider
         obj.tts_voice_id = record.tts_voice_id
+        obj.tts_voice_ref = record.tts_voice_ref or None
         await self._session.commit()
         await self._session.refresh(obj)
         return _dj_to_record(obj)

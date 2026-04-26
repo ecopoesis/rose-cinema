@@ -96,6 +96,7 @@ class StationBuilder:
                 text=intro_script,
                 voice_id=dj.tts_voice_id,
                 output_path=self._audio_dir / f"{run_id}_intro",
+                reference_audio=dj.tts_voice_ref,
             )
             entries.append(PlaylistEntry(
                 type="dj",
@@ -120,6 +121,7 @@ class StationBuilder:
                     text=script,
                     voice_id=dj.tts_voice_id,
                     output_path=self._audio_dir / f"{run_id}_seg{i:03d}",
+                    reference_audio=dj.tts_voice_ref,
                 )
                 entries.append(PlaylistEntry(
                     type="dj",

@@ -11,6 +11,7 @@ class DJCreate(BaseModel):
     agent_md: str = Field(default="")
     tts_provider: str = Field(default="piper")
     tts_voice_id: str = Field(default="en_US-lessac-medium")
+    tts_voice_ref: str = Field(default="")
 
 
 class DJUpdate(BaseModel):
@@ -18,6 +19,7 @@ class DJUpdate(BaseModel):
     agent_md: str | None = None
     tts_provider: str | None = None
     tts_voice_id: str | None = None
+    tts_voice_ref: str | None = None
 
 
 class DJResponse(BaseModel):
@@ -26,6 +28,7 @@ class DJResponse(BaseModel):
     agent_md: str
     tts_provider: str
     tts_voice_id: str
+    tts_voice_ref: str
 
 
 # ── Station ────────────────────────────────────────────────────────────
@@ -143,6 +146,7 @@ class DJExport(BaseModel):
     agent_md: str = ""
     tts_provider: str = "piper"
     tts_voice_id: str = "en_US-lessac-medium"
+    tts_voice_ref: str = ""
 
 
 class StationExport(BaseModel):

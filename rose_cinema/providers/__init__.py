@@ -34,6 +34,7 @@ class TTSProvider(ABC):
         text: str,
         voice_id: str,
         output_path: Path,
+        reference_audio: str = "",
     ) -> Path:
         """Render text to an audio file. Returns the path to the file."""
         ...

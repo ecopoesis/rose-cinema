@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     # TTS
     tts_provider: str = Field(default="piper")
     tts_api_key: str = Field(default="not-needed")
+    chatterbox_url: str = Field(default="http://host.docker.internal:8004")
 
     # Database
     database_url: str = Field(default="sqlite+aiosqlite:///data/rose_cinema.db")

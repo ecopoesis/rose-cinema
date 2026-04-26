@@ -14,6 +14,7 @@ class DJRecord:
     agent_md: str = ""
     tts_provider: str = "piper"
     tts_voice_id: str = "en_US-lessac-medium"
+    tts_voice_ref: str = ""
 
 
 @dataclass
