@@ -69,6 +69,7 @@ class StationResponse(BaseModel):
     max_playlists: int
     dj_id: str | None
     music_source: str
+    album_art: str
 
 
 # ── Playlist Generation ───────────────────────────────────────────────
@@ -159,6 +160,7 @@ class StationExport(BaseModel):
     max_playlists: int = Field(default=0, ge=0)
     music_source: str = ""
     dj_name: str | None = None
+    album_art: str = ""
 
 
 class ExportData(BaseModel):

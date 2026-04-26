@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Pre-fetch Piper voices so first synth doesn't have to download.
 # Bryce Beattie's voices live outside the upstream piper-tts manifest,
 # so we fetch them directly. Tracked by issue #20.
-RUN mkdir -p /app/data/piper_models /app/data/dj_audio /app/data/exports && \
+RUN mkdir -p /app/data/piper_models /app/data/dj_audio /app/data/exports /app/data/album_art && \
     python -c "import urllib.request as u; \
 voices = ['cori-high', 'kristin', 'bryce', 'norman', 'mv2', 'jenny']; \
 [u.urlretrieve(f'https://sfo3.digitaloceanspaces.com/bkmdls/{v}.{ext}', f'/app/data/piper_models/{v}.{ext}') for v in voices for ext in ('onnx','onnx.json')]; \

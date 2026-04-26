@@ -51,14 +51,23 @@
   /* ── Station CRUD ──────────────────────────────────────────── */
 
   async function handleSaveStation(data) {
+    const artFile = data._artFile;
+    const removeArt = data._removeArt;
+    delete data._artFile;
+    delete data._removeArt;
     try {
+      let saved;
       if (modal.data) {
-        await api.updateStation(modal.data.id, data);
-        showToast('Station updated');
+        saved = await api.updateStation(modal.data.id, data);
       } else {
-        await api.createStation(data);
-        showToast('Station created');
+        saved = await api.createStation(data);
       }
+      if (artFile) {
+        await api.uploadAlbumArt(saved.id, artFile);
+      } else if (removeArt && modal.data) {
+        await api.deleteAlbumArt(modal.data.id);
+      }
+      showToast(modal.data ? 'Station updated' : 'Station created');
       closeModal();
       await loadAll();
     } catch (e) { showToast(e.message, true); }
@@ -197,6 +206,9 @@
         {@const dj = djById(s.dj_id)}
         <div class="card">
           <div class="card-header">
+            {#if s.album_art}
+              <img src="/api/stations/{s.id}/album-art" alt="" class="card-art">
+            {/if}
             <div class="card-name">{s.name}</div>
             <div class="card-actions">
               <button class="btn btn-sm btn-secondary" onclick={() => openStationForm(s)}>Edit</button>
@@ -312,6 +324,7 @@
   .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 0.5rem; padding: 1rem; }
   .card-header { display: flex; justify-content: space-between; align-items: flex-start;
                  margin-bottom: 0.5rem; gap: 0.5rem; }
+  .card-art { width: 48px; height: 48px; object-fit: cover; border-radius: 0.25rem; flex-shrink: 0; }
   .card-name { font-weight: 600; font-size: 1.05rem; }
   .card-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
   .card-meta { font-size: 0.85rem; color: #888; line-height: 1.7; }

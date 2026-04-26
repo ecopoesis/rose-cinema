@@ -6,6 +6,10 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from mutagen.mp3 import MP3
+from mutagen.id3 import ID3, TIT2, TPE1, APIC
+
+from rose_cinema.config import settings
 from rose_cinema.providers import LLMProvider, TTSProvider
 from rose_cinema.providers.factory import get_tts_provider
 from rose_cinema.repositories import DJRecord, StationRecord, PlaylistRunRecord
@@ -59,6 +63,28 @@ class SongMetadata:
         }
 
 
+def _tag_dj_audio(
+    path: Path, title: str, artist: str, art_path: Path | None = None,
+) -> None:
+    if not path.exists() or path.suffix.lower() != ".mp3":
+        return
+    try:
+        audio = MP3(path, ID3=ID3)
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags.add(TIT2(encoding=3, text=[title]))
+        audio.tags.add(TPE1(encoding=3, text=[artist]))
+        if art_path and art_path.exists():
+            mime = "image/jpeg" if art_path.suffix.lower() in (".jpg", ".jpeg") else "image/png"
+            audio.tags.add(APIC(
+                encoding=3, mime=mime, type=3, desc="Cover",
+                data=art_path.read_bytes(),
+            ))
+        audio.save()
+    except Exception:
+        logger.warning("Failed to tag %s, continuing without metadata", path)
+
+
 class StationBuilder:
     """
     Orchestrates playlist generation:
@@ -84,6 +110,12 @@ class StationBuilder:
         run_id = str(uuid.uuid4())[:8]
         entries: list[PlaylistEntry] = []
 
+        art_path: Path | None = None
+        if station.album_art:
+            candidate = Path(settings.album_art_dir) / station.album_art
+            if candidate.exists():
+                art_path = candidate
+
         # Optional station intro
         if station.dj_talk_rate > 0:
             intro_script = await self._script_service.generate_intro(
@@ -98,6 +130,7 @@ class StationBuilder:
                 output_path=self._audio_dir / f"{run_id}_intro",
                 reference_audio=dj.tts_voice_ref,
             )
+            _tag_dj_audio(intro_audio, station.name, dj.name, art_path)
             entries.append(PlaylistEntry(
                 type="dj",
                 script=intro_script,
@@ -123,6 +156,7 @@ class StationBuilder:
                     output_path=self._audio_dir / f"{run_id}_seg{i:03d}",
                     reference_audio=dj.tts_voice_ref,
                 )
+                _tag_dj_audio(audio_path, station.name, dj.name, art_path)
                 entries.append(PlaylistEntry(
                     type="dj",
                     script=script,

@@ -12,7 +12,24 @@
   let dj_babble_rate = $state(init.dj_babble_rate ?? 0.5);
   let dj_max_length_secs = $state(init.dj_max_length_secs ?? 30);
   let max_playlists = $state(init.max_playlists ?? 0);
+  let artFile = $state(null);
+  let artPreview = $state(init.album_art ? `/api/stations/${init.id}/album-art` : '');
+  let removeArt = $state(false);
   let saving = $state(false);
+
+  function handleArtChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    artFile = file;
+    removeArt = false;
+    artPreview = URL.createObjectURL(file);
+  }
+
+  function handleRemoveArt() {
+    artFile = null;
+    artPreview = '';
+    removeArt = true;
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -28,6 +45,8 @@
         dj_babble_rate: Number(dj_babble_rate),
         dj_max_length_secs: Number(dj_max_length_secs),
         max_playlists: Number(max_playlists),
+        _artFile: artFile,
+        _removeArt: removeArt,
       });
     } finally { saving = false; }
   }
@@ -42,6 +61,18 @@
     <div class="field">
       <label for="s-desc">Description</label>
       <textarea id="s-desc" bind:value={description} rows="2"></textarea>
+    </div>
+    <div class="field">
+      <label>Album Art</label>
+      <div class="art-row">
+        {#if artPreview}
+          <img src={artPreview} alt="Album art" class="art-thumb">
+        {/if}
+        <input type="file" accept=".jpg,.jpeg,.png" onchange={handleArtChange}>
+        {#if artPreview}
+          <button type="button" class="btn btn-sm btn-danger" onclick={handleRemoveArt}>Remove</button>
+        {/if}
+      </div>
     </div>
     <div class="field">
       <label for="s-source">Music Source</label>
@@ -91,3 +122,8 @@
     </button>
   </div>
 </form>
+
+<style>
+  .art-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .art-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 0.25rem; border: 1px solid #333; }
+</style>

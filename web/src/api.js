@@ -28,3 +28,14 @@ export const fetchStationRuns = (stationId) =>
   api(`/stations/${stationId}/runs`);
 export const deleteRun = (runId) =>
   api(`/runs/${runId}`, { method: 'DELETE' });
+
+export async function uploadAlbumArt(stationId, file) {
+  const form = new FormData();
+  form.append('file', file);
+  const r = await fetch(`/api/stations/${stationId}/album-art`, { method: 'POST', body: form });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export const deleteAlbumArt = (stationId) =>
+  api(`/stations/${stationId}/album-art`, { method: 'DELETE' });

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -190,6 +190,63 @@ async def delete_station(
             await cleanup_run(run, run_repo, settings.dj_audio_dir, ma_client)
 
     await repo.delete(station_id)
+
+
+@app.post("/api/stations/{station_id}/album-art", response_model=StationResponse)
+async def upload_album_art(
+    station_id: str,
+    file: UploadFile,
+    session: AsyncSession = Depends(get_session),
+):
+    repo = SqliteStationRepository(session)
+    existing = await repo.get(station_id)
+    if not existing:
+        raise HTTPException(404, "Station not found")
+
+    ext = Path(file.filename or "image.jpg").suffix.lower()
+    if ext not in (".jpg", ".jpeg", ".png"):
+        raise HTTPException(400, "Only .jpg and .png files are supported")
+
+    art_dir = Path(settings.album_art_dir)
+    art_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{station_id}{ext}"
+    dest = art_dir / filename
+    dest.write_bytes(await file.read())
+
+    existing.album_art = filename
+    updated = await repo.update(existing)
+    return StationResponse(**updated.__dict__)
+
+
+@app.delete("/api/stations/{station_id}/album-art", response_model=StationResponse)
+async def delete_album_art(
+    station_id: str, session: AsyncSession = Depends(get_session),
+):
+    repo = SqliteStationRepository(session)
+    existing = await repo.get(station_id)
+    if not existing:
+        raise HTTPException(404, "Station not found")
+
+    if existing.album_art:
+        art_path = Path(settings.album_art_dir) / existing.album_art
+        art_path.unlink(missing_ok=True)
+    existing.album_art = ""
+    updated = await repo.update(existing)
+    return StationResponse(**updated.__dict__)
+
+
+@app.get("/api/stations/{station_id}/album-art")
+async def get_album_art(
+    station_id: str, session: AsyncSession = Depends(get_session),
+):
+    repo = SqliteStationRepository(session)
+    existing = await repo.get(station_id)
+    if not existing or not existing.album_art:
+        raise HTTPException(404, "No album art")
+    art_path = Path(settings.album_art_dir) / existing.album_art
+    if not art_path.exists():
+        raise HTTPException(404, "No album art")
+    return FileResponse(art_path)
 
 
 # ── Playlist generation ───────────────────────────────────────────────
@@ -464,6 +521,7 @@ async def export_all(session: AsyncSession = Depends(get_session)):
                 dj_babble_rate=s.dj_babble_rate, dj_max_length_secs=s.dj_max_length_secs,
                 max_playlists=s.max_playlists, music_source=s.music_source,
                 dj_name=dj_map.get(s.dj_id) if s.dj_id else None,
+                album_art=s.album_art,
             )
             for s in all_stations
         ],

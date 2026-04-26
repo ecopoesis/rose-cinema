@@ -15,6 +15,7 @@ piper-tts>=1.2.0
 
 # Audio processing
 pydub>=0.25.1
+mutagen>=1.47.0
 
 # Music Assistant client
 websockets>=12.0

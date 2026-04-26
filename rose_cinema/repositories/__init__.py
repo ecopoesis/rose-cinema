@@ -29,6 +29,7 @@ class StationRecord:
     max_playlists: int = 0
     dj_id: str | None = None
     music_source: str = ""
+    album_art: str = ""
 
 
 @dataclass

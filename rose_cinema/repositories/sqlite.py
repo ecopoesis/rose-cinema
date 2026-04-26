@@ -40,6 +40,7 @@ def _station_to_record(s: Station) -> StationRecord:
         max_playlists=s.max_playlists,
         dj_id=s.dj_id,
         music_source=s.music_source,
+        album_art=s.album_art or "",
     )
 
 
@@ -131,6 +132,7 @@ class SqliteStationRepository(StationRepository):
             max_playlists=record.max_playlists,
             dj_id=record.dj_id,
             music_source=record.music_source,
+            album_art=record.album_art or None,
         )
         self._session.add(obj)
         await self._session.commit()
@@ -150,6 +152,7 @@ class SqliteStationRepository(StationRepository):
         obj.max_playlists = record.max_playlists
         obj.dj_id = record.dj_id
         obj.music_source = record.music_source
+        obj.album_art = record.album_art or None
         await self._session.commit()
         await self._session.refresh(obj)
         return _station_to_record(obj)

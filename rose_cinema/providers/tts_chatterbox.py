@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 from pathlib import Path
 
 import httpx
@@ -34,7 +35,8 @@ class ChatterboxTTS(TTSProvider):
         output_path: Path,
         reference_audio: str = "",
     ) -> Path:
-        output_path = Path(output_path).with_suffix(".wav")
+        output_path = Path(output_path)
+        wav_path = output_path.with_suffix(".wav")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if reference_audio:
@@ -56,9 +58,16 @@ class ChatterboxTTS(TTSProvider):
             async with httpx.AsyncClient(timeout=300.0) as client:
                 resp = await client.post(f"{self._base_url}/tts", json=payload)
                 resp.raise_for_status()
-                output_path.write_bytes(resp.content)
+                wav_path.write_bytes(resp.content)
 
-        return output_path
+        mp3_path = output_path.with_suffix(".mp3")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(wav_path), "-q:a", "2", str(mp3_path)],
+            capture_output=True,
+            timeout=60,
+        )
+        wav_path.unlink(missing_ok=True)
+        return mp3_path
 
     def list_voices(self) -> list[dict]:
         try:
