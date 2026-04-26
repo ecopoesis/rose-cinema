@@ -20,12 +20,15 @@ from rose_cinema.providers.factory import get_llm_provider
 from rose_cinema.services.station_builder import StationBuilder, SongMetadata
 from rose_cinema.services.track_picker import TrackPicker
 from rose_cinema.services.musickit import get_music_catalog
+from rose_cinema.services.music_assistant import get_music_assistant_client
 from rose_cinema.services.airplay import AirPlayService
+from pathlib import Path
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
     GenerateRequest, PlaylistRunResponse, PlaylistEntryResponse,
     AirPlayDeviceResponse, PlayRequest,
+    MAPlayRequest, MAPlayResponse,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -275,6 +278,51 @@ async def discover_devices():
     service = AirPlayService()
     devices = await service.discover_devices()
     return [AirPlayDeviceResponse(**d.__dict__) for d in devices]
+
+
+# ── Music Assistant playback ──────────────────────────────────────────
+
+
+@app.post("/api/runs/{run_id}/play", response_model=MAPlayResponse)
+async def play_run(
+    run_id: str,
+    body: MAPlayRequest = MAPlayRequest(),
+    session: AsyncSession = Depends(get_session),
+):
+    repo = SqlitePlaylistRunRepository(session)
+    run = await repo.get(run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    if not run.playlist_json:
+        raise HTTPException(400, "Run has no playlist yet")
+
+    client = get_music_assistant_client()
+    if client is None:
+        raise HTTPException(503, "Music Assistant not configured (set MA_URL and MA_TOKEN)")
+
+    player_id = body.player_id or settings.ma_default_player_id
+    if not player_id:
+        raise HTTPException(400, "No player_id supplied and no MA_DEFAULT_PLAYER_ID configured")
+
+    if not settings.public_base_url:
+        raise HTTPException(503, "PUBLIC_BASE_URL not configured (MA cannot reach our DJ audio)")
+
+    base = settings.public_base_url.rstrip("/")
+    uris: list[str] = []
+    for e in json.loads(run.playlist_json):
+        if e.get("type") == "song" and e.get("apple_music_id"):
+            uris.append(f"apple_music://track/{e['apple_music_id']}")
+        elif e.get("type") == "dj" and e.get("audio_file"):
+            uris.append(f"{base}/audio/{Path(e['audio_file']).name}")
+        else:
+            logger.warning("Skipping unplayable entry: type=%s id=%s file=%s",
+                           e.get("type"), e.get("apple_music_id"), e.get("audio_file"))
+
+    if not uris:
+        raise HTTPException(400, "No playable entries (no apple_music_ids and no DJ audio)")
+
+    await client.play_media(player_id=player_id, media_uris=uris, option=body.option)
+    return MAPlayResponse(player_id=player_id, queued=len(uris), uris=uris)
 
 
 # ── Health ─────────────────────────────────────────────────────────────

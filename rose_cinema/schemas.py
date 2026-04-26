@@ -114,3 +114,14 @@ class AirPlayDeviceResponse(BaseModel):
 class PlayRequest(BaseModel):
     device_id: str
     run_id: str
+
+
+class MAPlayRequest(BaseModel):
+    player_id: str | None = None  # falls back to settings.ma_default_player_id
+    option: str = "replace"  # replace | replace_next | next | add
+
+
+class MAPlayResponse(BaseModel):
+    player_id: str
+    queued: int
+    uris: list[str]

@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     musickit_private_key_path: str = Field(default="")
     musickit_storefront: str = Field(default="us")
 
+    # Music Assistant (playback)
+    ma_url: str = Field(default="")           # e.g. http://server03.local:8095
+    ma_token: str = Field(default="")
+    ma_default_player_id: str = Field(default="")
+    public_base_url: str = Field(default="")  # how MA reaches us for DJ audio
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
