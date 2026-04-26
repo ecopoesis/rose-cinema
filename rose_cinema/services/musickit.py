@@ -78,13 +78,26 @@ class MusicKitCatalog(MusicCatalog):
         return out
 
 
+def _resolve_inline_key(raw: str) -> str:
+    """Accept either raw PEM or base64-encoded PEM (env-friendly single-line form)."""
+    s = raw.strip()
+    if s.startswith("-----BEGIN"):
+        return s
+    import base64
+    return base64.b64decode(s).decode()
+
+
 def get_music_catalog() -> MusicCatalog | None:
     """Build a MusicKitCatalog from settings, or return None if not configured."""
     cfg = settings
     if not (cfg.musickit_team_id and cfg.musickit_key_id):
         return None
     if cfg.musickit_private_key:
-        private_key = cfg.musickit_private_key
+        try:
+            private_key = _resolve_inline_key(cfg.musickit_private_key)
+        except Exception:
+            logger.exception("Failed to decode MUSICKIT_PRIVATE_KEY (expect raw PEM or base64-encoded PEM)")
+            return None
     elif cfg.musickit_private_key_path and Path(cfg.musickit_private_key_path).exists():
         private_key = Path(cfg.musickit_private_key_path).read_text()
     else:
