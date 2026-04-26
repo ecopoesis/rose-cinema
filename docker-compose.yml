@@ -6,7 +6,7 @@ services:
     container_name: rose-cinema
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8765:8000"
     volumes:
       - rc_data:/app/data
     environment:
