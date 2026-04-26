@@ -1,0 +1,31 @@
+from pydantic_settings import BaseSettings
+from pydantic import Field
+
+
+class Settings(BaseSettings):
+    # LLM
+    llm_provider: str = Field(default="ollama")
+    llm_base_url: str = Field(default="http://ollama:11434/v1")
+    llm_model: str = Field(default="llama3.1:8b")
+    llm_api_key: str = Field(default="not-needed")
+
+    # TTS
+    tts_provider: str = Field(default="piper")
+    tts_api_key: str = Field(default="not-needed")
+
+    # Database
+    database_url: str = Field(default="sqlite+aiosqlite:///data/rose_cinema.db")
+
+    # Server
+    host: str = Field(default="0.0.0.0")
+    port: int = Field(default=8000)
+
+    # Paths
+    dj_audio_dir: str = Field(default="data/dj_audio")
+    exports_dir: str = Field(default="data/exports")
+    agents_dir: str = Field(default="agents")
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+
+settings = Settings()
