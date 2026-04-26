@@ -107,6 +107,7 @@ class PlaylistRunResponse(BaseModel):
     status: str
     entries: list[PlaylistEntryResponse] = []
     error_message: str | None = None
+    generation_secs: float | None = None
 
 
 class PlaylistRunSummary(BaseModel):
@@ -116,6 +117,7 @@ class PlaylistRunSummary(BaseModel):
     created_at: str | None = None
     track_count: int = 0
     error_message: str | None = None
+    generation_secs: float | None = None
 
 
 # ── Music Assistant playback ──────────────────────────────────────────

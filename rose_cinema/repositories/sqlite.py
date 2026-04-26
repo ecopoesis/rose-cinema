@@ -52,6 +52,7 @@ def _run_to_record(r: PlaylistRun) -> PlaylistRunRecord:
         playlist_json=r.playlist_json,
         error_message=r.error_message,
         ma_playlist_id=r.ma_playlist_id,
+        generation_secs=r.generation_secs,
         created_at=r.created_at.isoformat() if r.created_at else None,
     )
 
@@ -204,6 +205,7 @@ class SqlitePlaylistRunRepository(PlaylistRunRepository):
         obj.playlist_json = record.playlist_json
         obj.error_message = record.error_message
         obj.ma_playlist_id = record.ma_playlist_id
+        obj.generation_secs = record.generation_secs
         await self._session.commit()
         await self._session.refresh(obj)
         return _run_to_record(obj)

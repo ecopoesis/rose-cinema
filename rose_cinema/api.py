@@ -316,7 +316,8 @@ async def generate_playlist(
         entries = await builder.build_playlist(station, dj, songs)
 
         run.status = "ready"
-        elapsed = time.monotonic() - t0
+        elapsed = round(time.monotonic() - t0, 1)
+        run.generation_secs = elapsed
         logger.info("[%s] Generation complete — %d entries in %.1fs", station.name, len(entries), elapsed)
         run.playlist_json = json.dumps([e.to_dict() for e in entries])
         await run_repo.update(run)
@@ -377,6 +378,7 @@ async def list_station_runs(
                 if e.get("type") == "song"
             ]) if r.playlist_json else 0,
             error_message=r.error_message,
+            generation_secs=r.generation_secs,
         )
         for r in runs
     ]
