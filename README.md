@@ -99,10 +99,10 @@ This is what's deployed to `server03` today.
    PUBLIC_BASE_URL=http://<your-server>:8765   # how MA fetches DJ MP3s back from radiobot
    ```
 
-5. Pull the LLM model into the Ollama stack (one-time, ~24 GB for qwen3.6:35b):
+5. Pull the LLM model into the Ollama stack (one-time, ~17 GB for qwen3.6:27b — fits in ~19 GiB RAM. The 35b variant exists but needs ~25 GiB to load):
 
    ```bash
-   docker exec ollama ollama pull qwen3.6:35b
+   docker exec ollama ollama pull qwen3.6:27b
    ```
 
 6. Bootstrap a DJ and a station (until #7 builds the create-station UI):
