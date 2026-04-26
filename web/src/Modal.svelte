@@ -30,4 +30,6 @@
   .close-btn { background: none; border: none; color: #888; font-size: 1.4rem;
                cursor: pointer; padding: 0 0.25rem; line-height: 1; }
   .close-btn:hover { color: #eee; }
+  .modal :global(.modal-body) { overflow-y: auto; padding: 1rem 1.25rem; flex: 1; min-height: 0; }
+  .modal :global(.modal-footer) { padding: 0.75rem 1.25rem; border-top: 1px solid #333; flex-shrink: 0; }
 </style>
