@@ -4,6 +4,7 @@ import logging
 import subprocess
 from pathlib import Path
 
+from rose_cinema.config import settings
 from rose_cinema.providers import TTSProvider
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class PiperTTS(TTSProvider):
                 [
                     "piper",
                     "--model", voice_id,
+                    "--data-dir", settings.piper_data_dir,
                     "--output_file", str(wav_path),
                 ],
                 input=text,

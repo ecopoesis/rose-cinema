@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     dj_audio_dir: str = Field(default="data/dj_audio")
     exports_dir: str = Field(default="data/exports")
     agents_dir: str = Field(default="agents")
+    piper_data_dir: str = Field(default="data/piper_models")
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
