@@ -79,7 +79,7 @@ class SongInput(BaseModel):
 
 class GenerateRequest(BaseModel):
     station_id: str
-    songs: list[SongInput] = Field(..., min_length=1)
+    songs: list[SongInput] = Field(default_factory=list)
 
 
 class PlaylistEntryResponse(BaseModel):

@@ -18,6 +18,7 @@ from rose_cinema.repositories.sqlite import (
 )
 from rose_cinema.providers.factory import get_llm_provider
 from rose_cinema.services.station_builder import StationBuilder, SongMetadata
+from rose_cinema.services.track_picker import TrackPicker
 from rose_cinema.services.airplay import AirPlayService
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
@@ -195,17 +196,31 @@ async def generate_playlist(
         llm = get_llm_provider()
         builder = StationBuilder(llm, audio_dir=settings.dj_audio_dir)
 
-        songs = [
-            SongMetadata(
-                title=s.title,
-                artist=s.artist,
-                album=s.album,
-                year=s.year,
-                apple_music_id=s.apple_music_id,
-                duration_secs=s.duration_secs,
+        if body.songs:
+            songs = [
+                SongMetadata(
+                    title=s.title,
+                    artist=s.artist,
+                    album=s.album,
+                    year=s.year,
+                    apple_music_id=s.apple_music_id,
+                    duration_secs=s.duration_secs,
+                )
+                for s in body.songs
+            ]
+        else:
+            if not station.music_source:
+                raise HTTPException(
+                    400, "Station has no music_source and no songs were provided"
+                )
+            songs = await TrackPicker(llm).pick(
+                music_source=station.music_source,
+                target_minutes=station.length_minutes,
             )
-            for s in body.songs
-        ]
+            logger.info(
+                "TrackPicker selected %d songs for station '%s'",
+                len(songs), station.name,
+            )
 
         entries = await builder.build_playlist(station, dj, songs)
 

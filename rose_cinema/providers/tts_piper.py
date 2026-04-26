@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from rose_cinema.config import settings
 from rose_cinema.providers import TTSProvider
 
 logger = logging.getLogger(__name__)
+
+
+def _piper_bin() -> str:
+    sibling = Path(sys.executable).parent / "piper"
+    if sibling.exists():
+        return str(sibling)
+    return shutil.which("piper") or "piper"
 
 
 class PiperTTS(TTSProvider):
@@ -31,7 +40,7 @@ class PiperTTS(TTSProvider):
         try:
             proc = subprocess.run(
                 [
-                    "piper",
+                    _piper_bin(),
                     "--model", voice_id,
                     "--data-dir", settings.piper_data_dir,
                     "--output_file", str(wav_path),
