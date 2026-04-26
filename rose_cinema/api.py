@@ -275,6 +275,7 @@ async def generate_playlist(
     run = await run_repo.create(PlaylistRunRecord(station_id=station.id, status="generating"))
 
     try:
+        logger.info("[%s] Starting generation for station '%s' (DJ: %s)", station.id[:8], station.name, dj.name)
         llm = get_llm_provider()
         builder = StationBuilder(llm, audio_dir=settings.dj_audio_dir)
 
@@ -299,6 +300,7 @@ async def generate_playlist(
             seed_builder = SeedPoolBuilder(catalog, llm) if catalog else None
             if catalog is None:
                 logger.warning("MusicKit catalog not configured — pool grounding disabled, falling back to LLM-discovery")
+            logger.info("[%s] Picking tracks for %d minutes from source: %s", station.name, station.length_minutes, station.music_source[:80])
             songs = await TrackPicker(llm, catalog, seed_builder).pick(
                 music_source=station.music_source,
                 target_minutes=station.length_minutes,
@@ -308,9 +310,11 @@ async def generate_playlist(
                 len(songs), station.name,
             )
 
+        logger.info("[%s] Building playlist with %d songs…", station.name, len(songs))
         entries = await builder.build_playlist(station, dj, songs)
 
         run.status = "ready"
+        logger.info("[%s] Generation complete — %d entries", station.name, len(entries))
         run.playlist_json = json.dumps([e.to_dict() for e in entries])
         await run_repo.update(run)
 

@@ -116,14 +116,23 @@ class StationBuilder:
             if candidate.exists():
                 art_path = candidate
 
+        total_songs = len(songs)
+        logger.info(
+            "[%s] Starting playlist build: %d songs, DJ=%s (%s/%s), talk_rate=%.2f",
+            station.name, total_songs, dj.name, dj.tts_provider, dj.tts_voice_id,
+            station.dj_talk_rate,
+        )
+
         # Optional station intro
         if station.dj_talk_rate > 0:
+            logger.info("[%s] Generating station intro script…", station.name)
             intro_script = await self._script_service.generate_intro(
                 dj=dj,
                 station_name=station.name,
                 babble_rate=station.dj_babble_rate,
                 max_seconds=station.dj_max_length_secs,
             )
+            logger.info("[%s] Synthesizing intro audio (%s)…", station.name, dj.tts_provider)
             intro_audio = await tts.synthesize(
                 text=intro_script,
                 voice_id=dj.tts_voice_id,
@@ -131,6 +140,7 @@ class StationBuilder:
                 reference_audio=dj.tts_voice_ref,
             )
             _tag_dj_audio(intro_audio, station.name, dj.name, art_path)
+            logger.info("[%s] Intro ready", station.name)
             entries.append(PlaylistEntry(
                 type="dj",
                 script=intro_script,
@@ -140,9 +150,15 @@ class StationBuilder:
         # Interleave songs and DJ segments
         previous_song: dict | None = None
 
+        dj_seg = 0
         for i, song in enumerate(songs):
             # Check if the DJ should talk before this song
             if i > 0 and self._script_service.should_talk(station.dj_talk_rate):
+                dj_seg += 1
+                logger.info(
+                    "[%s] DJ segment %d: scripting transition → \"%s\" by %s…",
+                    station.name, dj_seg, song.title, song.artist,
+                )
                 script = await self._script_service.generate_transition(
                     dj=dj,
                     previous_song=previous_song,
@@ -150,6 +166,7 @@ class StationBuilder:
                     babble_rate=station.dj_babble_rate,
                     max_seconds=station.dj_max_length_secs,
                 )
+                logger.info("[%s] DJ segment %d: synthesizing audio…", station.name, dj_seg)
                 audio_path = await tts.synthesize(
                     text=script,
                     voice_id=dj.tts_voice_id,
@@ -157,12 +174,17 @@ class StationBuilder:
                     reference_audio=dj.tts_voice_ref,
                 )
                 _tag_dj_audio(audio_path, station.name, dj.name, art_path)
+                logger.info("[%s] DJ segment %d: done", station.name, dj_seg)
                 entries.append(PlaylistEntry(
                     type="dj",
                     script=script,
                     audio_file=str(audio_path),
                 ))
 
+            logger.info(
+                "[%s] Song %d/%d: \"%s\" by %s",
+                station.name, i + 1, total_songs, song.title, song.artist,
+            )
             # Add the song
             entries.append(PlaylistEntry(
                 type="song",
