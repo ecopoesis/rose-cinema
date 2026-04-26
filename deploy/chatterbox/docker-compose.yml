@@ -1,0 +1,21 @@
+services:
+  chatterbox-tts:
+    build:
+      context: https://github.com/devnen/Chatterbox-TTS-Server.git
+      dockerfile: Dockerfile.cpu
+    container_name: chatterbox-tts
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    volumes:
+      - /opt/containers/chatterbox/config.yaml:/app/config.yaml
+      - /opt/containers/chatterbox/voices:/app/voices
+      - /opt/containers/chatterbox/reference_audio:/app/reference_audio
+      - /opt/containers/chatterbox/outputs:/app/outputs
+      - /opt/containers/chatterbox/logs:/app/logs
+      - chatterbox_hf_cache:/app/hf_cache
+    environment:
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+
+volumes:
+  chatterbox_hf_cache:
