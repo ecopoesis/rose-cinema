@@ -102,10 +102,10 @@ This is what's deployed to `server03` today.
 5. Pull the LLM model into the Ollama stack (one-time, ~21 GB):
 
    ```bash
-   docker exec ollama ollama pull hf.co/bartowski/Qwen_Qwen3.6-35B-A3B-GGUF:Q4_K_M
+   docker exec ollama ollama pull qwen3.6:35b-a3b
    ```
 
-   This is the MoE variant of Qwen3.6 — 35B total parameters but only 3B active per token, so per-token CPU inference is roughly an order of magnitude faster than the dense 27b/35b. Ollama's `qwen3.6` namespace doesn't ship the A3B variant, so we pull bartowski's GGUF quant directly from HuggingFace.
+   This is the MoE variant of Qwen3.6 — 35B total parameters but only 3B active per token, so per-token CPU inference is roughly an order of magnitude faster than the dense `qwen3.6:27b` / `:35b` variants.
 
 6. Bootstrap a DJ and a station (until #7 builds the create-station UI):
 
