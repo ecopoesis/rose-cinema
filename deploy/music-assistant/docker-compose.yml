@@ -1,0 +1,18 @@
+services:
+  music-assistant:
+    image: ghcr.io/music-assistant/server:latest
+    container_name: music-assistant
+    restart: unless-stopped
+    # Host network is required so the AirPlay/mDNS/Chromecast/Sonos
+    # discovery in MA can see devices on the LAN.
+    network_mode: host
+    # Privileged is recommended by upstream — needed for some
+    # built-in players and Bluetooth control.
+    privileged: true
+    volumes:
+      - ma_data:/data
+    environment:
+      LOG_LEVEL: info
+
+volumes:
+  ma_data:
