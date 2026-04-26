@@ -54,16 +54,16 @@ class MusicAssistantClient:
     async def play_media(
         self,
         player_id: str,
-        media_uris: list[str],
+        media: list[str | dict],
         option: str = "replace",
     ) -> None:
-        if not media_uris:
-            raise ValueError("play_media requires at least one URI")
+        if not media:
+            raise ValueError("play_media requires at least one item")
         async with self._session() as (ws, mid):
             r = await _call(
                 ws, mid, "player_queues/play_media",
                 queue_id=player_id,
-                media=media_uris,
+                media=media,
                 option=option,
             )
         if r.get("error"):
@@ -82,7 +82,7 @@ class MusicAssistantClient:
         self,
         name: str,
         apple_music_uris: list[str],
-        dj_mp3_urls: list[str],
+        dj_mp3_metadata: list[dict],
         ordered_uris: list[str],
     ) -> dict:
         """Create an MA playlist with mixed Apple Music + DJ MP3 entries.
@@ -92,12 +92,13 @@ class MusicAssistantClient:
         then the full ordered URI list is written to a fresh playlist.
         """
         async with self._session() as (ws, mid):
-            # 1. Ingest each DJ MP3 URL into MA's library; record the
+            # 1. Ingest each DJ MP3 into MA's library; record the
             #    canonical URI we get back so we can substitute it into
             #    the ordered list.
             url_to_uri: dict[str, str] = {}
-            for url in dj_mp3_urls:
-                r = await _call(ws, mid, "music/library/add_item", item=url)
+            for item in dj_mp3_metadata:
+                url = item["uri"]
+                r = await _call(ws, mid, "music/library/add_item", item=item)
                 lib_uri = (r.get("result") or {}).get("uri")
                 if not lib_uri:
                     raise RuntimeError(f"MA add_item({url}) returned no URI: {r!r}")

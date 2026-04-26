@@ -424,20 +424,44 @@ async def play_run(
         raise HTTPException(503, "PUBLIC_BASE_URL not configured (MA cannot reach our DJ audio)")
 
     base = settings.public_base_url.rstrip("/")
-    uris: list[str] = []
+    station_repo = SqliteStationRepository(session)
+    station = await station_repo.get(run.station_id)
+    dj_name = "?"
+    art_url = None
+    if station:
+        if station.dj_id:
+            dj_repo = SqliteDJRepository(session)
+            dj = await dj_repo.get(station.dj_id)
+            if dj:
+                dj_name = dj.name
+        if station.album_art:
+            art_url = f"{base}/api/stations/{station.id}/album-art"
+
+    items: list[str | dict] = []
     for e in json.loads(run.playlist_json):
         if e.get("type") == "song" and e.get("apple_music_id"):
-            uris.append(f"apple_music://track/{e['apple_music_id']}")
+            items.append(f"apple_music://track/{e['apple_music_id']}")
         elif e.get("type") == "dj" and e.get("audio_file"):
-            uris.append(f"{base}/audio/{Path(e['audio_file']).name}")
+            url = f"{base}/audio/{Path(e['audio_file']).name}"
+            item = {
+                "uri": url,
+                "name": station.name if station else "DJ Segment",
+                "artists": [{"name": dj_name}],
+                "metadata": {}
+            }
+            if art_url:
+                item["metadata"]["images"] = [{"url": art_url, "type": "thumb"}]
+            items.append(item)
         else:
             logger.warning("Skipping unplayable entry: type=%s id=%s file=%s",
                            e.get("type"), e.get("apple_music_id"), e.get("audio_file"))
 
-    if not uris:
+    if not items:
         raise HTTPException(400, "No playable entries (no apple_music_ids and no DJ audio)")
 
-    await client.play_media(player_id=player_id, media_uris=uris, option=body.option)
+    await client.play_media(player_id=player_id, media=items, option=body.option)
+    # We return only URIs in the response for simplicity
+    uris = [i if isinstance(i, str) else i["uri"] for i in items]
     return MAPlayResponse(player_id=player_id, queued=len(uris), uris=uris)
 
 
@@ -459,14 +483,24 @@ async def save_run_to_ma(
     if not settings.public_base_url:
         raise HTTPException(503, "PUBLIC_BASE_URL not configured")
 
-    # Look up the station so we can name the playlist
+    # Look up the station and DJ for naming and metadata
     station_repo = SqliteStationRepository(session)
     station = await station_repo.get(run.station_id)
     station_name = station.name if station else "Unknown station"
+    dj_name = "?"
+    art_url = None
+    if station:
+        if station.dj_id:
+            dj_repo = SqliteDJRepository(session)
+            dj = await dj_repo.get(station.dj_id)
+            if dj:
+                dj_name = dj.name
+        if station.album_art:
+            art_url = f"{settings.public_base_url.rstrip('/')}/api/stations/{station.id}/album-art"
 
     base = settings.public_base_url.rstrip("/")
     ordered: list[str] = []
-    dj_urls: list[str] = []
+    dj_metadata: list[dict] = []
     apple_uris: list[str] = []
     for e in json.loads(run.playlist_json):
         if e.get("type") == "song" and e.get("apple_music_id"):
@@ -474,7 +508,16 @@ async def save_run_to_ma(
             ordered.append(uri); apple_uris.append(uri)
         elif e.get("type") == "dj" and e.get("audio_file"):
             url = f"{base}/audio/{Path(e['audio_file']).name}"
-            ordered.append(url); dj_urls.append(url)
+            ordered.append(url)
+            meta = {
+                "uri": url,
+                "name": station_name,
+                "artists": [{"name": dj_name}],
+                "metadata": {}
+            }
+            if art_url:
+                meta["metadata"]["images"] = [{"url": art_url, "type": "thumb"}]
+            dj_metadata.append(meta)
 
     if not ordered:
         raise HTTPException(400, "Run has no playable entries")
@@ -484,7 +527,7 @@ async def save_run_to_ma(
     out = await client.save_as_playlist(
         name=name,
         apple_music_uris=apple_uris,
-        dj_mp3_urls=dj_urls,
+        dj_mp3_metadata=dj_metadata,
         ordered_uris=ordered,
     )
 
