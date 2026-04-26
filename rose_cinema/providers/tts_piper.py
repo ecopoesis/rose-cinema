@@ -70,9 +70,13 @@ class PiperTTS(TTSProvider):
 
     def list_voices(self) -> list[dict]:
         return [
-            {"id": "en_US-lessac-medium", "name": "Lessac (US English, Medium)"},
-            {"id": "en_US-lessac-high", "name": "Lessac (US English, High)"},
-            {"id": "en_US-libritts_r-medium", "name": "LibriTTS-R (US English, Medium)"},
-            {"id": "en_US-amy-medium", "name": "Amy (US English, Medium)"},
-            {"id": "en_GB-alba-medium", "name": "Alba (British English, Medium)"},
+            # Bryce Beattie's audiobook-narrator voices (brycebeattie.com/files/tts)
+            {"id": "cori-high",   "name": "Cori (warm female, high quality)"},
+            {"id": "kristin",     "name": "Kristin (female)"},
+            {"id": "bryce",       "name": "Bryce (male)"},
+            {"id": "norman",      "name": "Norman (deep male)"},
+            {"id": "mv2",         "name": "ManyVoice (multi-speaker)"},
+            {"id": "jenny",       "name": "Jenny (female)"},
+            # Default Piper voice (auto-downloaded by piper-tts)
+            {"id": "en_US-lessac-medium", "name": "Lessac (US English, fallback)"},
         ]
