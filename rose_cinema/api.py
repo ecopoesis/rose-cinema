@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
@@ -274,6 +275,7 @@ async def generate_playlist(
     # Create a run record
     run = await run_repo.create(PlaylistRunRecord(station_id=station.id, status="generating"))
 
+    t0 = time.monotonic()
     try:
         logger.info("[%s] Starting generation for station '%s' (DJ: %s)", station.id[:8], station.name, dj.name)
         llm = get_llm_provider()
@@ -314,7 +316,8 @@ async def generate_playlist(
         entries = await builder.build_playlist(station, dj, songs)
 
         run.status = "ready"
-        logger.info("[%s] Generation complete — %d entries", station.name, len(entries))
+        elapsed = time.monotonic() - t0
+        logger.info("[%s] Generation complete — %d entries in %.1fs", station.name, len(entries), elapsed)
         run.playlist_json = json.dumps([e.to_dict() for e in entries])
         await run_repo.update(run)
 
