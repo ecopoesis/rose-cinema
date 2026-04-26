@@ -19,6 +19,7 @@ from rose_cinema.repositories.sqlite import (
 from rose_cinema.providers.factory import get_llm_provider
 from rose_cinema.services.station_builder import StationBuilder, SongMetadata
 from rose_cinema.services.track_picker import TrackPicker
+from rose_cinema.services.musickit import get_music_catalog
 from rose_cinema.services.airplay import AirPlayService
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
@@ -213,7 +214,10 @@ async def generate_playlist(
                 raise HTTPException(
                     400, "Station has no music_source and no songs were provided"
                 )
-            songs = await TrackPicker(llm).pick(
+            catalog = get_music_catalog()
+            if catalog is None:
+                logger.warning("MusicKit catalog not configured — track verification disabled")
+            songs = await TrackPicker(llm, catalog).pick(
                 music_source=station.music_source,
                 target_minutes=station.length_minutes,
             )

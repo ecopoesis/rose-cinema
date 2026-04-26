@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     agents_dir: str = Field(default="agents")
     piper_data_dir: str = Field(default="data/piper_models")
 
+    # MusicKit (Apple Music catalog) — leave blank to disable verification
+    musickit_team_id: str = Field(default="")
+    musickit_key_id: str = Field(default="")
+    musickit_private_key_path: str = Field(default="")
+    musickit_storefront: str = Field(default="us")
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
