@@ -12,7 +12,7 @@ services:
     environment:
       LLM_PROVIDER: ollama
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
-      LLM_MODEL: ${LLM_MODEL:-qwen3:30b-a3b-instruct-2507-q4_K_M}
+      LLM_MODEL: ${LLM_MODEL:-qwen3.6:27b}
       LLM_API_KEY: ollama
       TTS_PROVIDER: piper
       PIPER_DATA_DIR: /app/data/piper_models
