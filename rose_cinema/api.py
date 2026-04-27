@@ -458,7 +458,7 @@ async def play_run(
                 "metadata": {}
             }
             if art_url:
-                item["metadata"]["images"] = [{"url": art_url, "type": "thumb"}]
+                item["metadata"]["images"] = [{"type": "thumb", "path": art_url, "provider": "builtin", "remotely_accessible": True}]
             items.append(item)
         else:
             logger.warning("Skipping unplayable entry: type=%s id=%s file=%s",
@@ -532,7 +532,7 @@ async def save_run_to_ma(
                 "metadata": {}
             }
             if art_url:
-                meta["metadata"]["images"] = [{"url": art_url, "type": "thumb"}]
+                meta["metadata"]["images"] = [{"type": "thumb", "path": art_url, "provider": "builtin", "remotely_accessible": True}]
             dj_metadata.append(meta)
 
     if not ordered:
