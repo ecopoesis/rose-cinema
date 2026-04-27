@@ -445,8 +445,16 @@ async def play_run(
             url = f"{base}/audio/{Path(e['audio_file']).name}"
             item = {
                 "uri": url,
+                "item_id": url,
+                "provider": "builtin",
+                "media_type": "track",
                 "name": station.name if station else "DJ Segment",
-                "artists": [{"name": dj_name}],
+                "artists": [{
+                    "name": dj_name,
+                    "item_id": dj_name,
+                    "provider": "builtin",
+                    "media_type": "artist",
+                }],
                 "metadata": {}
             }
             if art_url:
@@ -511,8 +519,16 @@ async def save_run_to_ma(
             ordered.append(url)
             meta = {
                 "uri": url,
+                "item_id": url,
+                "provider": "builtin",
+                "media_type": "track",
                 "name": station_name,
-                "artists": [{"name": dj_name}],
+                "artists": [{
+                    "name": dj_name,
+                    "item_id": dj_name,
+                    "provider": "builtin",
+                    "media_type": "artist",
+                }],
                 "metadata": {}
             }
             if art_url:
