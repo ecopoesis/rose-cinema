@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:alpine
+    image: postgres:17-alpine
     container_name: rose-cinema-postgres
     restart: unless-stopped
     environment:
@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: rose
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rose}
     volumes:
-      - /opt/containers/rose-cinema-postgres:/var/lib/postgresql/data
+      - /opt/containers/rose-cinema-pg17:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rose -d rose_cinema"]
       interval: 5s
