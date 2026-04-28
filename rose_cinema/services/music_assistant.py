@@ -99,45 +99,56 @@ class MusicAssistantClient:
             url_to_uri: dict[str, str] = {}
             for item in dj_mp3_metadata:
                 url = item["uri"]
-                r = await _call(ws, mid, "music/library/add_item", item=item)
+                # Strip images before add — MA may try to validate them
+                # during ingest, which can fail and block the whole save.
+                add_item = {k: v for k, v in item.items() if k != "metadata"}
+                add_item["metadata"] = {
+                    k: v for k, v in (item.get("metadata") or {}).items()
+                    if k != "images"
+                }
+                r = await _call(ws, mid, "music/library/add_item", item=add_item)
                 result = r.get("result") or {}
                 lib_uri = result.get("uri")
                 if not lib_uri:
                     raise RuntimeError(f"MA add_item({url}) returned no URI: {r!r}")
                 url_to_uri[url] = lib_uri
 
-                # The builtin provider ignores metadata.images on add.
-                # Set the album art via a separate update call.
+                # Set album art via a separate update call (non-fatal).
                 if art_url:
                     track_id = result.get("item_id")
                     if track_id:
-                        await _call(
-                            ws, mid, "music/tracks/update",
-                            item_id=str(track_id),
-                            update={
-                                "item_id": str(track_id),
-                                "provider": "library",
-                                "media_type": "track",
-                                "name": result.get("name", ""),
-                                "uri": lib_uri,
-                                "provider_mappings": [
-                                    {
-                                        "item_id": url,
-                                        "provider_domain": "builtin",
-                                        "provider_instance": "builtin",
-                                        "available": True,
-                                    }
-                                ],
-                                "metadata": {
-                                    "images": [{
-                                        "type": "thumb",
-                                        "path": art_url,
-                                        "provider": "builtin",
-                                        "remotely_accessible": True,
-                                    }]
+                        try:
+                            r_upd = await _call(
+                                ws, mid, "music/tracks/update",
+                                item_id=str(track_id),
+                                update={
+                                    "item_id": str(track_id),
+                                    "provider": "library",
+                                    "media_type": "track",
+                                    "name": result.get("name", ""),
+                                    "uri": lib_uri,
+                                    "provider_mappings": [
+                                        {
+                                            "item_id": url,
+                                            "provider_domain": "builtin",
+                                            "provider_instance": "builtin",
+                                            "available": True,
+                                        }
+                                    ],
+                                    "metadata": {
+                                        "images": [{
+                                            "type": "thumb",
+                                            "path": art_url,
+                                            "provider": "builtin",
+                                            "remotely_accessible": True,
+                                        }]
+                                    },
                                 },
-                            },
-                        )
+                            )
+                            if r_upd.get("error"):
+                                logger.warning("MA track artwork update failed: %s", r_upd["error"])
+                        except Exception:
+                            logger.warning("Failed to set artwork for DJ track %s, continuing", url)
 
             final_uris = [url_to_uri.get(u, u) for u in ordered_uris]
 

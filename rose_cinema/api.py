@@ -42,6 +42,19 @@ app = FastAPI(
     version="0.1.0",
 )
 
+
+@app.middleware("http")
+async def fix_head_for_api(request, call_next):
+    """StaticFiles(html=True) at / shadows HEAD for API routes."""
+    if request.method == "HEAD" and request.url.path.startswith("/api/"):
+        request.scope["method"] = "GET"
+        response = await call_next(request)
+        response.headers["content-length"] = str(response.headers.get("content-length", "0"))
+        response.body = b""
+        return response
+    return await call_next(request)
+
+
 # Serve DJ audio files
 app.mount("/audio", StaticFiles(directory=settings.dj_audio_dir), name="audio")
 
@@ -439,7 +452,7 @@ async def play_run(
             dj = await dj_repo.get(station.dj_id)
             if dj:
                 dj_name = dj.name
-        if station.album_art:
+        if station.album_art and (Path(settings.album_art_dir) / station.album_art).exists():
             art_url = f"{base}/api/stations/{station.id}/album-art"
 
     ep = run.episode
@@ -516,7 +529,7 @@ async def save_run_to_ma(
             dj = await dj_repo.get(station.dj_id)
             if dj:
                 dj_name = dj.name
-        if station.album_art:
+        if station.album_art and (Path(settings.album_art_dir) / station.album_art).exists():
             art_url = f"{settings.public_base_url.rstrip('/')}/api/stations/{station.id}/album-art"
 
     base = settings.public_base_url.rstrip("/")

@@ -10,9 +10,6 @@ services:
     # built-in players and Bluetooth control.
     privileged: true
     volumes:
-      - ma_data:/data
+      - /opt/containers/music-assistant:/data
     environment:
       LOG_LEVEL: info
-
-volumes:
-  ma_data:

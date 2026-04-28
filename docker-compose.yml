@@ -8,7 +8,7 @@ services:
     ports:
       - "8765:8000"
     volumes:
-      - rc_data:/app/data
+      - /opt/containers/rose-cinema:/app/data
     environment:
       LLM_PROVIDER: ollama
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
@@ -28,6 +28,3 @@ services:
     extra_hosts:
       # Reach the host (where Ollama and Music Assistant run as separate stacks)
       - "host.docker.internal:host-gateway"
-
-volumes:
-  rc_data:
