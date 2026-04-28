@@ -21,7 +21,7 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 - **Apple Music catalog**: MusicKit REST API. Developer JWT (ES256, 90-day lifetime, lazy-cached) signed with a `.p8` key. Read-only; used for track verification and canonical metadata. Private key supplied either as a file path (`MUSICKIT_PRIVATE_KEY_PATH`) or inline base64 (`MUSICKIT_PRIVATE_KEY`).
 - **TTS**: Piper, via the `piper` CLI as a subprocess. Voices live under `data/piper_models/` (path is `settings.piper_data_dir`, threaded into `--data-dir`). Default fallback is `en_US-lessac-medium` (auto-downloadable). The Bryce Beattie narrator set (`cori-high`, `kristin`, `bryce`, `norman`, `mv2`, `jenny`) is baked into the Docker image.
 - **Playback**: [Music Assistant](https://music-assistant.io/) is the playback bridge. It runs as its own stack (`deploy/music-assistant/docker-compose.yml`), with **host networking** on Linux so mDNS sees the LAN. radiobot talks to it over WebSocket. *No pyatv.*
-- **Database**: SQLite via SQLAlchemy async + Alembic. Repository pattern with abstract interfaces in `repositories/__init__.py` and SQLite implementations in `repositories/sqlite.py`. `alembic upgrade head` runs at container start.
+- **Database**: PostgreSQL 17 via SQLAlchemy async (asyncpg driver) + Alembic. Repository pattern with abstract interfaces in `repositories/__init__.py` and SQL implementations in `repositories/sql.py`. `alembic upgrade head` runs at container start. The `DATABASE_URL` env var overrides the default connection string; Alembic auto-converts `+asyncpg` to the sync `postgresql://` scheme.
 - **DJ personalities**: Markdown blob in the `djs.agent_md` column. Two samples in `agents/`: Velvet (late-night) and Spark (morning drive).
 
 ## Key abstractions
@@ -31,7 +31,8 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 - `DJRepository` / `StationRepository` / `PlaylistRunRepository` — abstract in `repositories/__init__.py`
 - `SeedPoolBuilder` — `services/seed_pool.py`. Resolves `music_source` to an artist (or to an artist via track-name lookup, or to genre IDs via an LLM theme map). Fans out via Apple Music's `similar-artists` and `top-songs` views (or genre charts) into a catalog-grounded candidate pool. In-memory TTL cache (24h). Falls through to legacy LLM-discovery only when nothing resolves.
 - `TrackPicker` — `services/track_picker.py`. With a pool: LLM picks indices, then per-artist cap (2) + deterministic top-up. Without a pool (fallback): legacy LLM-proposes → MusicKit verifies → cap.
-- `StationBuilder` — `services/station_builder.py`. Takes the verified tracklist, decides DJ-segment placement (`should_talk` rolls dice on `talk_rate`), generates scripts, synthesizes audio, returns the `PlaylistEntry` list.
+- `EventQueue` / `QueueWorker` — `services/queue.py`. PG LISTEN/NOTIFY queue with `FOR UPDATE SKIP LOCKED` claiming. Generation is decomposed into discrete steps (pick_tracks → generate scripts → synthesize audio → finalize → MA ingest). Each step is a `GenerationEvent` row with retry logic. Chain dispatch triggers downstream steps on completion. Crash recovery resets stale `processing` events on startup.
+- `step_handlers` — `services/step_handlers.py`. One async function per step type. Thin wrappers calling existing service code (`TrackPicker`, `DJScriptService`, TTS providers, MA client).
 - `DJScriptService` — `services/dj_script.py`. Verbosity scales with `babble_rate`; injects DJ personality from `agent_md`.
 - `MusicAssistantClient` — `services/music_assistant.py`. One-shot WS client: `play_media` (live queue) and `save_as_playlist` (DJ MP3s ingested as `library://track/<id>` via the builtin provider, then mixed with `apple_music://track/<id>` URIs into an MA playlist).
 
@@ -48,16 +49,19 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 ## What's built
 
 - FastAPI surface with CRUD for DJs / Stations / PlaylistRuns
-- `POST /api/generate` — LLM track selection → catalog verification → DJ scripts → Piper synthesis
+- `POST /api/generate` — returns immediately, enqueues `pick_tracks` as first queue step. UI polls `GET /api/runs/{id}` for progress.
+- `GET /api/runs/{id}` — includes `progress` (total/completed/failed/current_step) while generating
+- `GET /api/runs/{id}/events` — full event history for debugging
 - `POST /api/runs/{id}/play` — push the playlist as a live queue to a Music Assistant player
-- `POST /api/runs/{id}/save-to-ma` — save the playlist (with DJ patter) as an MA library playlist
-- Web UI mounted at `/` — list stations, "Generate" button (does generate + save-to-ma)
-- Alembic migration 001 (initial schema)
-- Docker stack for server deploy via Portainer (`docker-compose.yml` builds the radiobot image, runs alembic on start, ships with the Bryce voices baked in)
+- `POST /api/runs/{id}/save-to-ma` — enqueues MA chain (returns 202); auto-triggered after finalize if MA is configured
+- Queue worker with PG LISTEN/NOTIFY — 10 step types, retry up to 3x, crash recovery on startup
+- Web UI mounted at `/` — list stations, "Generate" button (polls for progress)
+- Alembic migrations 001–007
+- Docker stack: PostgreSQL 17 + radiobot, Portainer-managed
 
 ## Notable backlog (GitHub issues)
 
-#1 station variety sliders · #2 Music-Map · #3 MusicBrainz · #4 iOS Shortcut · #5 today-in-history chitchat · #6 nightly news scrape · #7 full create/edit web UI · #9 async generation · #10 length-budget top-up · #16 no-repeat memory · #18 Jellyfin/Lidarr · #19 mixed-source playback
+#1 station variety sliders · #2 Music-Map · #3 MusicBrainz · #4 iOS Shortcut · #5 today-in-history chitchat · #6 nightly news scrape · #7 full create/edit web UI · #10 length-budget top-up · #16 no-repeat memory · #18 Jellyfin/Lidarr · #19 mixed-source playback
 
 ## Commands
 

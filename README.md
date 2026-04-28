@@ -8,27 +8,26 @@ AI-powered radio station generator. Builds a candidate pool of real Apple Music 
 ## How it fits together
 
 ```
-            ┌────────────────────────────────────────────────┐
-            │  rose-cinema (this repo)                       │
-            │                                                │
-            │  Web UI  ─►  /api/generate  ─►  StationBuilder │
-            │                                  │             │
-            │             ┌────────────────────┘             │
-            │             ▼                                  │
-            │   SeedPoolBuilder ──► MusicKit catalog         │
-            │     (similar-artists graph / genre charts)     │
-            │             │                                  │
-            │   TrackPicker ──► LLM curates pool indices     │
-            │                   (Ollama / OpenAI-compatible) │
-            │             │                                  │
-            │   DJScriptService ─► LLM (DJ patter)           │
-            │             ▼                                  │
-            │   PiperTTS  ─► data/dj_audio/*.mp3             │
-            │             │                                  │
-            │             ▼                                  │
-            │   /api/runs/{id}/save-to-ma  ─►  Music         │
-            │   /api/runs/{id}/play           Assistant      │
-            └────────────────────────────────────────────────┘
+            ┌─────────────────────────────────────────────────────┐
+            │  rose-cinema (this repo)                            │
+            │                                                     │
+            │  Web UI  ─►  /api/generate  ─►  EventQueue (PG)    │
+            │                                  │                  │
+            │             ┌────────────────────┘                  │
+            │             ▼                                       │
+            │   QueueWorker picks up steps via LISTEN/NOTIFY      │
+            │             │                                       │
+            │   pick_tracks ──► SeedPoolBuilder + TrackPicker     │
+            │             │       (MusicKit catalog + LLM)        │
+            │             ▼                                       │
+            │   generate_*_script ──► DJScriptService (LLM)      │
+            │             ▼                                       │
+            │   synthesize_* ──► PiperTTS ─► data/dj_audio/*.mp3 │
+            │             ▼                                       │
+            │   finalize_playlist ──► ma_ingest/create/add_tracks │
+            │                              ▼                      │
+            │                        Music Assistant              │
+            └─────────────────────────────────────────────────────┘
                                                 │
                             ┌───────────────────┴───────────────────┐
                             ▼                                       ▼
@@ -46,13 +45,13 @@ What's working:
 - ✅ **Hybrid track selection**: SeedPoolBuilder produces a catalog-grounded pool (artist's top-songs + similar-artists' top-songs, or theme→genre charts); LLM curates indices from the pool. Per-artist cap (2) plus deterministic top-up keeps playlists at target length even when the LLM piles up favorites. Hallucination-impossible by construction.
 - ✅ DJ scripts scaled by `babble_rate`, voiced via Piper (incl. Bryce Beattie's narrator set: `cori-high`, `kristin`, `bryce`, `norman`, `mv2`, `jenny`)
 - ✅ Music Assistant integration — save full playlist (DJs + Apple Music) as an MA library playlist; or push directly to a player queue
-- ✅ FastAPI + SQLite + Alembic; web UI at `/` (list stations, "Generate" button)
-- ✅ Three Docker stacks for production deploy: `music-assistant` (playback), `ollama` (LLM + Open WebUI for browser chat), `rose-cinema` (this app). Each is its own Portainer stack from this repo.
+- ✅ FastAPI + PostgreSQL + Alembic; web UI at `/` (list stations, "Generate" button with live progress)
+- ✅ Queue-based generation with PG LISTEN/NOTIFY — crash-recoverable, retry up to 3×, chain dispatch
+- ✅ Three Docker stacks for production deploy: `music-assistant` (playback), `ollama` (LLM + Open WebUI for browser chat), `rose-cinema` (this app + PostgreSQL). Each is its own Portainer stack from this repo.
 
 In flight (see GitHub issues):
 
 - 🚧 #1 Station variety sliders (genre / year / popularity)
-- 🚧 #9 Async generation (today `/api/generate` blocks for the full pipeline)
 - 🚧 #4 iOS Shortcut for "Hey Siri, start <station>"
 - 🚧 #5 / #6 Topical DJ chitchat (today-in-history + nightly news scrape)
 - 🚧 #18 / #19 Jellyfin + Lidarr + non-Apple-Music playback
@@ -66,7 +65,7 @@ Full backlog: <https://github.com/ecopoesis/rose-cinema/issues>
 - **Apple Music catalog**: MusicKit REST API. Developer JWT (ES256, 90-day lifetime, lazy-cached) signed with a `.p8` key. Used **only for read** — track verification + canonical metadata.
 - **TTS**: Piper, runs in-process via the `piper` CLI. Voices live under `data/piper_models/`. (ElevenLabs / OpenAI TTS providers exist in code but the install path bakes Piper into the Docker image.)
 - **Playback**: Music Assistant runs as a separate container/stack on the same machine (or LAN). `radiobot` talks to it over the WebSocket API; MA owns all the actual audio routing.
-- **Database**: SQLite via SQLAlchemy async + Alembic. Repository-pattern abstractions in `rose_cinema/repositories/__init__.py`; SQLite implementations in `rose_cinema/repositories/sqlite.py`. Postgres is a drop-in if/when needed.
+- **Database**: PostgreSQL 17 via SQLAlchemy async (asyncpg) + Alembic. Repository-pattern abstractions in `rose_cinema/repositories/__init__.py`; SQL implementations in `rose_cinema/repositories/sql.py`. PG LISTEN/NOTIFY drives the generation queue.
 - **DJ personalities**: Markdown blob in the `djs.agent_md` column. Two samples in `agents/`: Velvet (late-night) and Spark (morning drive).
 
 ## Station config
@@ -86,17 +85,19 @@ This is what's deployed to `server03` today.
 1. **Add the Music Assistant stack** in Portainer pointing at `deploy/music-assistant/docker-compose.yml`. Bring it up, open `http://<host>:8095/`, create an admin user, add the **Apple Music** provider (signs in with your Apple ID), add players (Sonos / AirPlay / webplayer / etc.).
 2. **Generate an MA API token** in Settings → General → Security. You'll need it next.
 3. **Add the Ollama stack** in Portainer pointing at `deploy/ollama/docker-compose.yml`. Brings up `ollama` (host networking, port 11434) and `open-webui` for browser-side chat at `http://<host>:3000/`.
-4. **Add the rose-cinema stack** in Portainer pointing at `docker-compose.yml` (repo root) with these env vars:
+4. **Add the rose-cinema stack** in Portainer pointing at `docker-compose.yml` (repo root). This brings up PostgreSQL 17 + the radiobot app. Set these env vars:
 
    ```
+   POSTGRES_PASSWORD=<choose a password>
    MUSICKIT_TEAM_ID=...
    MUSICKIT_KEY_ID=...
    MUSICKIT_PRIVATE_KEY=<base64-encoded contents of AuthKey_XXX.p8>
    MUSICKIT_STOREFRONT=us
-   MA_URL=http://host.docker.internal:8095
+   MA_URL=http://<server-ip>:8095
    MA_TOKEN=<JWT from step 2>
    MA_DEFAULT_PLAYER_ID=<player_id from MA's API or UI>
    PUBLIC_BASE_URL=http://<your-server>:8765   # how MA fetches DJ MP3s back from radiobot
+   CHATTERBOX_URL=http://<server-ip>:8004      # optional: Chatterbox TTS server
    ```
 
 5. Pull the LLM model into the Ollama stack (one-time, ~18 GB):
@@ -107,21 +108,7 @@ This is what's deployed to `server03` today.
 
    This is the Qwen3 30B MoE — 30B total parameters but only 3B active per token, so per-token CPU inference is roughly an order of magnitude faster than dense models of comparable quality. The newer `qwen3.6:35b-a3b` exists but its `q4_K_M` quant needs ~25 GiB to load — too big for a typical 16-32 GiB server unless you have GPU offload.
 
-6. Bootstrap a DJ and a station (until #7 builds the create-station UI):
-
-   ```bash
-   curl -X POST http://<host>:8765/api/djs \
-     -H 'Content-Type: application/json' \
-     -d '{"name":"Velvet","agent_md":"...","tts_voice_id":"jenny"}'
-   curl -X POST http://<host>:8765/api/stations \
-     -H 'Content-Type: application/json' \
-     -d '{"name":"Late Night","length_minutes":30,"dj_talk_rate":0.5,
-          "dj_babble_rate":0.5,"dj_max_length_secs":30,
-          "dj_id":"<uuid from previous>",
-          "music_source":"Welcome to the Black Parade by My Chemical Romance"}'
-   ```
-
-7. Open `http://<host>:8765/` and click **Generate** on the station. The generated playlist appears in Music Assistant a few minutes later.
+6. Open `http://<host>:8765/`, create a DJ and a station via the web UI, and click **Generate**. The button shows live progress; the playlist appears in Music Assistant once complete.
 
 ## Quick start — local dev (macOS)
 
@@ -129,11 +116,15 @@ Music Assistant **does not run cleanly in Docker on macOS** (mDNS doesn't traver
 
 ```bash
 # Python toolchain
-brew install pyenv ollama ffmpeg
+brew install pyenv ollama ffmpeg postgresql@17
 pyenv install 3.12.1
 pyenv local 3.12.1
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt
+
+# PostgreSQL
+brew services start postgresql@17
+createdb rose_cinema
 
 # LLM (native Ollama gets Metal GPU acceleration on Apple Silicon)
 brew services start ollama
@@ -144,7 +135,7 @@ mkdir -p data/piper_models data/dj_audio data/exports
 cd data/piper_models && python -m piper.download_voices en_US-lessac-medium && cd -
 
 # Config
-cp .env.example .env   # then edit (see Issue #14 — .env.example doesn't exist yet; copy from below)
+cp .env.example .env   # then edit (see below)
 .venv/bin/alembic upgrade head
 
 # Run
@@ -154,6 +145,8 @@ cp .env.example .env   # then edit (see Issue #14 — .env.example doesn't exist
 Sample `.env` for local dev:
 
 ```env
+DATABASE_URL=postgresql+asyncpg://localhost/rose_cinema
+
 LLM_BASE_URL=http://localhost:11434/v1
 LLM_MODEL=qwen3:30b-a3b-instruct-2507-q4_K_M
 LLM_API_KEY=ollama

@@ -156,13 +156,6 @@ class MAPlayResponse(BaseModel):
     uris: list[str]
 
 
-class MASaveResponse(BaseModel):
-    playlist_id: str
-    playlist_uri: str
-    playlist_name: str
-    queued_uris: int
-
-
 # ── Export / Import ───────────────────────────────────────────────────
 
 
