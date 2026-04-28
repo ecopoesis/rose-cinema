@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from rose_cinema.repositories import PlaylistRunRecord
-from rose_cinema.repositories.sqlite import SqlitePlaylistRunRepository
+from rose_cinema.repositories.sql import SqlPlaylistRunRepository
 from rose_cinema.services.music_assistant import MusicAssistantClient
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 async def cleanup_run(
     run: PlaylistRunRecord,
-    run_repo: SqlitePlaylistRunRepository,
+    run_repo: SqlPlaylistRunRepository,
     audio_dir: str,
     ma_client: MusicAssistantClient | None = None,
 ) -> None:
@@ -39,7 +39,7 @@ async def cleanup_run(
 async def trim_station_runs(
     station_id: str,
     max_playlists: int,
-    run_repo: SqlitePlaylistRunRepository,
+    run_repo: SqlPlaylistRunRepository,
     audio_dir: str,
     ma_client: MusicAssistantClient | None = None,
 ) -> None:

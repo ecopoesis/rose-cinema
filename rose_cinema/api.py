@@ -12,10 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from rose_cinema.config import settings
 from rose_cinema.database import get_session
 from rose_cinema.repositories import DJRecord, StationRecord, PlaylistRunRecord
-from rose_cinema.repositories.sqlite import (
-    SqliteDJRepository,
-    SqliteStationRepository,
-    SqlitePlaylistRunRepository,
+from rose_cinema.repositories.sql import (
+    SqlDJRepository,
+    SqlStationRepository,
+    SqlPlaylistRunRepository,
 )
 from rose_cinema.providers.factory import get_llm_provider
 from rose_cinema.services.station_builder import StationBuilder, SongMetadata
@@ -64,14 +64,14 @@ app.mount("/audio", StaticFiles(directory=settings.dj_audio_dir), name="audio")
 
 @app.get("/api/djs", response_model=list[DJResponse])
 async def list_djs(session: AsyncSession = Depends(get_session)):
-    repo = SqliteDJRepository(session)
+    repo = SqlDJRepository(session)
     records = await repo.list_all()
     return [DJResponse(**r.__dict__) for r in records]
 
 
 @app.get("/api/djs/{dj_id}", response_model=DJResponse)
 async def get_dj(dj_id: str, session: AsyncSession = Depends(get_session)):
-    repo = SqliteDJRepository(session)
+    repo = SqlDJRepository(session)
     record = await repo.get(dj_id)
     if not record:
         raise HTTPException(404, "DJ not found")
@@ -80,7 +80,7 @@ async def get_dj(dj_id: str, session: AsyncSession = Depends(get_session)):
 
 @app.post("/api/djs", response_model=DJResponse, status_code=201)
 async def create_dj(body: DJCreate, session: AsyncSession = Depends(get_session)):
-    repo = SqliteDJRepository(session)
+    repo = SqlDJRepository(session)
     record = await repo.create(DJRecord(
         name=body.name,
         agent_md=body.agent_md,
@@ -95,7 +95,7 @@ async def create_dj(body: DJCreate, session: AsyncSession = Depends(get_session)
 async def update_dj(
     dj_id: str, body: DJUpdate, session: AsyncSession = Depends(get_session)
 ):
-    repo = SqliteDJRepository(session)
+    repo = SqlDJRepository(session)
     existing = await repo.get(dj_id)
     if not existing:
         raise HTTPException(404, "DJ not found")
@@ -117,10 +117,10 @@ async def update_dj(
 
 @app.delete("/api/djs/{dj_id}", status_code=204)
 async def delete_dj(dj_id: str, session: AsyncSession = Depends(get_session)):
-    repo = SqliteDJRepository(session)
+    repo = SqlDJRepository(session)
     if not await repo.get(dj_id):
         raise HTTPException(404, "DJ not found")
-    station_repo = SqliteStationRepository(session)
+    station_repo = SqlStationRepository(session)
     for s in await station_repo.list_all():
         if s.dj_id == dj_id:
             s.dj_id = None
@@ -133,14 +133,14 @@ async def delete_dj(dj_id: str, session: AsyncSession = Depends(get_session)):
 
 @app.get("/api/stations", response_model=list[StationResponse])
 async def list_stations(session: AsyncSession = Depends(get_session)):
-    repo = SqliteStationRepository(session)
+    repo = SqlStationRepository(session)
     records = await repo.list_all()
     return [StationResponse(**r.__dict__) for r in records]
 
 
 @app.get("/api/stations/{station_id}", response_model=StationResponse)
 async def get_station(station_id: str, session: AsyncSession = Depends(get_session)):
-    repo = SqliteStationRepository(session)
+    repo = SqlStationRepository(session)
     record = await repo.get(station_id)
     if not record:
         raise HTTPException(404, "Station not found")
@@ -151,7 +151,7 @@ async def get_station(station_id: str, session: AsyncSession = Depends(get_sessi
 async def create_station(
     body: StationCreate, session: AsyncSession = Depends(get_session)
 ):
-    repo = SqliteStationRepository(session)
+    repo = SqlStationRepository(session)
     record = await repo.create(StationRecord(
         name=body.name,
         description=body.description,
@@ -170,7 +170,7 @@ async def create_station(
 async def update_station(
     station_id: str, body: StationUpdate, session: AsyncSession = Depends(get_session)
 ):
-    repo = SqliteStationRepository(session)
+    repo = SqlStationRepository(session)
     existing = await repo.get(station_id)
     if not existing:
         raise HTTPException(404, "Station not found")
@@ -191,11 +191,11 @@ async def update_station(
 async def delete_station(
     station_id: str, session: AsyncSession = Depends(get_session)
 ):
-    repo = SqliteStationRepository(session)
+    repo = SqlStationRepository(session)
     if not await repo.get(station_id):
         raise HTTPException(404, "Station not found")
 
-    run_repo = SqlitePlaylistRunRepository(session)
+    run_repo = SqlPlaylistRunRepository(session)
     runs = await run_repo.list_by_station(station_id)
     if runs:
         from rose_cinema.services.cleanup import cleanup_run
@@ -212,7 +212,7 @@ async def upload_album_art(
     file: UploadFile,
     session: AsyncSession = Depends(get_session),
 ):
-    repo = SqliteStationRepository(session)
+    repo = SqlStationRepository(session)
     existing = await repo.get(station_id)
     if not existing:
         raise HTTPException(404, "Station not found")
@@ -236,7 +236,7 @@ async def upload_album_art(
 async def delete_album_art(
     station_id: str, session: AsyncSession = Depends(get_session),
 ):
-    repo = SqliteStationRepository(session)
+    repo = SqlStationRepository(session)
     existing = await repo.get(station_id)
     if not existing:
         raise HTTPException(404, "Station not found")
@@ -253,7 +253,7 @@ async def delete_album_art(
 async def get_album_art(
     station_id: str, session: AsyncSession = Depends(get_session),
 ):
-    repo = SqliteStationRepository(session)
+    repo = SqlStationRepository(session)
     existing = await repo.get(station_id)
     if not existing or not existing.album_art:
         raise HTTPException(404, "No album art")
@@ -270,9 +270,9 @@ async def get_album_art(
 async def generate_playlist(
     body: GenerateRequest, session: AsyncSession = Depends(get_session)
 ):
-    station_repo = SqliteStationRepository(session)
-    dj_repo = SqliteDJRepository(session)
-    run_repo = SqlitePlaylistRunRepository(session)
+    station_repo = SqlStationRepository(session)
+    dj_repo = SqlDJRepository(session)
+    run_repo = SqlPlaylistRunRepository(session)
 
     station = await station_repo.get(body.station_id)
     if not station:
@@ -355,7 +355,7 @@ async def generate_playlist(
 
 @app.get("/api/runs/{run_id}", response_model=PlaylistRunResponse)
 async def get_run(run_id: str, session: AsyncSession = Depends(get_session)):
-    repo = SqlitePlaylistRunRepository(session)
+    repo = SqlPlaylistRunRepository(session)
     run = await repo.get(run_id)
     if not run:
         raise HTTPException(404, "Run not found")
@@ -378,11 +378,11 @@ async def get_run(run_id: str, session: AsyncSession = Depends(get_session)):
 async def list_station_runs(
     station_id: str, session: AsyncSession = Depends(get_session)
 ):
-    station_repo = SqliteStationRepository(session)
+    station_repo = SqlStationRepository(session)
     if not await station_repo.get(station_id):
         raise HTTPException(404, "Station not found")
 
-    run_repo = SqlitePlaylistRunRepository(session)
+    run_repo = SqlPlaylistRunRepository(session)
     runs = await run_repo.list_by_station(station_id)
     return [
         PlaylistRunSummary(
@@ -404,7 +404,7 @@ async def list_station_runs(
 
 @app.delete("/api/runs/{run_id}", status_code=204)
 async def delete_run(run_id: str, session: AsyncSession = Depends(get_session)):
-    run_repo = SqlitePlaylistRunRepository(session)
+    run_repo = SqlPlaylistRunRepository(session)
     run = await run_repo.get(run_id)
     if not run:
         raise HTTPException(404, "Run not found")
@@ -423,7 +423,7 @@ async def play_run(
     body: MAPlayRequest = MAPlayRequest(),
     session: AsyncSession = Depends(get_session),
 ):
-    repo = SqlitePlaylistRunRepository(session)
+    repo = SqlPlaylistRunRepository(session)
     run = await repo.get(run_id)
     if not run:
         raise HTTPException(404, "Run not found")
@@ -442,13 +442,13 @@ async def play_run(
         raise HTTPException(503, "PUBLIC_BASE_URL not configured (MA cannot reach our DJ audio)")
 
     base = settings.public_base_url.rstrip("/")
-    station_repo = SqliteStationRepository(session)
+    station_repo = SqlStationRepository(session)
     station = await station_repo.get(run.station_id)
     dj_name = "?"
     art_url = None
     if station:
         if station.dj_id:
-            dj_repo = SqliteDJRepository(session)
+            dj_repo = SqlDJRepository(session)
             dj = await dj_repo.get(station.dj_id)
             if dj:
                 dj_name = dj.name
@@ -504,7 +504,7 @@ async def save_run_to_ma(
     run_id: str,
     session: AsyncSession = Depends(get_session),
 ):
-    repo = SqlitePlaylistRunRepository(session)
+    repo = SqlPlaylistRunRepository(session)
     run = await repo.get(run_id)
     if not run:
         raise HTTPException(404, "Run not found")
@@ -518,14 +518,14 @@ async def save_run_to_ma(
         raise HTTPException(503, "PUBLIC_BASE_URL not configured")
 
     # Look up the station and DJ for naming and metadata
-    station_repo = SqliteStationRepository(session)
+    station_repo = SqlStationRepository(session)
     station = await station_repo.get(run.station_id)
     station_name = station.name if station else "Unknown station"
     dj_name = "?"
     art_url = None
     if station:
         if station.dj_id:
-            dj_repo = SqliteDJRepository(session)
+            dj_repo = SqlDJRepository(session)
             dj = await dj_repo.get(station.dj_id)
             if dj:
                 dj_name = dj.name
@@ -606,8 +606,8 @@ async def save_run_to_ma(
 
 @app.get("/api/export", response_model=ExportData)
 async def export_all(session: AsyncSession = Depends(get_session)):
-    dj_repo = SqliteDJRepository(session)
-    station_repo = SqliteStationRepository(session)
+    dj_repo = SqlDJRepository(session)
+    station_repo = SqlStationRepository(session)
     all_djs = await dj_repo.list_all()
     all_stations = await station_repo.list_all()
     dj_map = {d.id: d.name for d in all_djs}
@@ -636,8 +636,8 @@ async def export_all(session: AsyncSession = Depends(get_session)):
 
 @app.post("/api/import", response_model=ImportResult)
 async def import_all(body: ExportData, session: AsyncSession = Depends(get_session)):
-    dj_repo = SqliteDJRepository(session)
-    station_repo = SqliteStationRepository(session)
+    dj_repo = SqlDJRepository(session)
+    station_repo = SqlStationRepository(session)
 
     existing_djs = await dj_repo.list_all()
     dj_name_map = {d.name: d.id for d in existing_djs}

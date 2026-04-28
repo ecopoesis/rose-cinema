@@ -63,7 +63,7 @@ def _run_to_record(r: PlaylistRun) -> PlaylistRunRecord:
 # ── DJ ─────────────────────────────────────────────────────────────────
 
 
-class SqliteDJRepository(DJRepository):
+class SqlDJRepository(DJRepository):
     def __init__(self, session: AsyncSession):
         self._session = session
 
@@ -113,7 +113,7 @@ class SqliteDJRepository(DJRepository):
 # ── Station ────────────────────────────────────────────────────────────
 
 
-class SqliteStationRepository(StationRepository):
+class SqlStationRepository(StationRepository):
     def __init__(self, session: AsyncSession):
         self._session = session
 
@@ -173,7 +173,7 @@ class SqliteStationRepository(StationRepository):
 # ── PlaylistRun ────────────────────────────────────────────────────────
 
 
-class SqlitePlaylistRunRepository(PlaylistRunRepository):
+class SqlPlaylistRunRepository(PlaylistRunRepository):
     def __init__(self, session: AsyncSession):
         self._session = session
 

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     chatterbox_url: str = Field(default="http://host.docker.internal:8004")
 
     # Database
-    database_url: str = Field(default="sqlite+aiosqlite:///data/rose_cinema.db")
+    database_url: str = Field(default="postgresql+asyncpg://rose:rose@postgres:5432/rose_cinema")
 
     # Server
     host: str = Field(default="0.0.0.0")

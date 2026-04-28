@@ -1,15 +1,35 @@
 services:
+  postgres:
+    image: postgres:alpine
+    container_name: rose-cinema-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rose_cinema
+      POSTGRES_USER: rose
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rose}
+    volumes:
+      - /opt/containers/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rose -d rose_cinema"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   radiobot:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: rose-cinema
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8765:8000"
     volumes:
       - /opt/containers/rose-cinema:/app/data
     environment:
+      DATABASE_URL: postgresql+asyncpg://rose:${POSTGRES_PASSWORD:-rose}@postgres:5432/rose_cinema
       LLM_PROVIDER: ollama
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_MODEL: ${LLM_MODEL:-qwen3.6:27b}
@@ -26,5 +46,4 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       CHATTERBOX_URL: ${CHATTERBOX_URL:-http://host.docker.internal:8004}
     extra_hosts:
-      # Reach the host (where Ollama and Music Assistant run as separate stacks)
       - "host.docker.internal:host-gateway"

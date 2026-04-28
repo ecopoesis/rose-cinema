@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
@@ -27,6 +30,11 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        url = url.replace("+asyncpg", "")
+        config.set_main_option("sqlalchemy.url", url)
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
