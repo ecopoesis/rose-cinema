@@ -313,7 +313,7 @@ async def generate_playlist(
             )
 
         logger.info("[%s] Building playlist with %d songs…", station.name, len(songs))
-        entries = await builder.build_playlist(station, dj, songs)
+        entries = await builder.build_playlist(station, dj, songs, episode=run.episode)
 
         run.status = "ready"
         elapsed = round(time.monotonic() - t0, 1)
@@ -326,6 +326,7 @@ async def generate_playlist(
             id=run.id,
             station_id=run.station_id,
             status=run.status,
+            episode=run.episode,
             entries=[PlaylistEntryResponse(**e.to_dict()) for e in entries],
         )
 
@@ -352,6 +353,7 @@ async def get_run(run_id: str, session: AsyncSession = Depends(get_session)):
         id=run.id,
         station_id=run.station_id,
         status=run.status,
+        episode=run.episode,
         entries=entries,
         error_message=run.error_message,
     )
@@ -372,6 +374,7 @@ async def list_station_runs(
             id=r.id,
             station_id=r.station_id,
             status=r.status,
+            episode=r.episode,
             created_at=r.created_at,
             track_count=len([
                 e for e in json.loads(r.playlist_json)
@@ -437,18 +440,20 @@ async def play_run(
         if station.album_art:
             art_url = f"{base}/api/stations/{station.id}/album-art"
 
+    ep = run.episode
     items: list[str | dict] = []
-    dj_seq = 0
+    dj_part = 0
     for e in json.loads(run.playlist_json):
         if e.get("type") == "song" and e.get("apple_music_id"):
             items.append(f"apple_music://track/{e['apple_music_id']}")
         elif e.get("type") == "dj" and e.get("audio_file"):
             fname = Path(e['audio_file']).name
             url = f"{base}/audio/{fname}"
-            run_tag = fname.split("_")[0]
-            seg_label = "Intro" if dj_seq == 0 else f"DJ {dj_seq}"
-            dj_seq += 1
-            seg_name = f"{station.name} — {seg_label} ({run_tag})" if station else f"DJ Segment {dj_seq}"
+            if ep and station:
+                seg_name = f"{station.name} - Episode {ep} - Intro" if dj_part == 0 else f"{station.name} - Episode {ep} - Part {dj_part}"
+            else:
+                seg_name = f"{station.name} - DJ {dj_part}" if station else f"DJ Segment {dj_part}"
+            dj_part += 1
             item = {
                 "uri": url,
                 "item_id": url,
@@ -513,10 +518,11 @@ async def save_run_to_ma(
             art_url = f"{settings.public_base_url.rstrip('/')}/api/stations/{station.id}/album-art"
 
     base = settings.public_base_url.rstrip("/")
+    ep = run.episode
     ordered: list[str] = []
     dj_metadata: list[dict] = []
     apple_uris: list[str] = []
-    dj_seq = 0
+    dj_part = 0
     for e in json.loads(run.playlist_json):
         if e.get("type") == "song" and e.get("apple_music_id"):
             uri = f"apple_music://track/{e['apple_music_id']}"
@@ -525,15 +531,17 @@ async def save_run_to_ma(
             fname = Path(e['audio_file']).name
             url = f"{base}/audio/{fname}"
             ordered.append(url)
-            run_tag = fname.split("_")[0]
-            seg_label = "Intro" if dj_seq == 0 else f"DJ {dj_seq}"
-            dj_seq += 1
+            if ep:
+                seg_name = f"{station_name} - Episode {ep} - Intro" if dj_part == 0 else f"{station_name} - Episode {ep} - Part {dj_part}"
+            else:
+                seg_name = f"{station_name} - DJ {dj_part}"
+            dj_part += 1
             meta = {
                 "uri": url,
                 "item_id": url,
                 "provider": "builtin",
                 "media_type": "track",
-                "name": f"{station_name} — {seg_label} ({run_tag})",
+                "name": seg_name,
                 "artists": [{
                     "name": dj_name,
                     "item_id": dj_name,
@@ -550,7 +558,10 @@ async def save_run_to_ma(
         raise HTTPException(400, "Run has no playable entries")
 
     from datetime import datetime
-    name = f"{station_name} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    if ep:
+        name = f"{station_name} Episode {ep} ({datetime.now().strftime('%Y-%m-%d')})"
+    else:
+        name = f"{station_name} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     out = await client.save_as_playlist(
         name=name,
         apple_music_uris=apple_uris,

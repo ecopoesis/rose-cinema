@@ -105,6 +105,7 @@ class PlaylistRunResponse(BaseModel):
     id: str
     station_id: str
     status: str
+    episode: int | None = None
     entries: list[PlaylistEntryResponse] = []
     error_message: str | None = None
     generation_secs: float | None = None
@@ -114,6 +115,7 @@ class PlaylistRunSummary(BaseModel):
     id: str
     station_id: str
     status: str
+    episode: int | None = None
     created_at: str | None = None
     track_count: int = 0
     error_message: str | None = None

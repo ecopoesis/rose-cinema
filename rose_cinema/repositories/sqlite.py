@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rose_cinema.models import DJ, Station, PlaylistRun
@@ -51,6 +51,7 @@ def _run_to_record(r: PlaylistRun) -> PlaylistRunRecord:
         status=r.status,
         playlist_json=r.playlist_json,
         error_message=r.error_message,
+        episode=r.episode,
         ma_playlist_id=r.ma_playlist_id,
         generation_secs=r.generation_secs,
         created_at=r.created_at.isoformat() if r.created_at else None,
@@ -187,10 +188,16 @@ class SqlitePlaylistRunRepository(PlaylistRunRepository):
         return [_run_to_record(r) for r in result.scalars().all()]
 
     async def create(self, record: PlaylistRunRecord) -> PlaylistRunRecord:
+        result = await self._session.execute(
+            select(func.max(PlaylistRun.episode))
+            .where(PlaylistRun.station_id == record.station_id)
+        )
+        max_ep = result.scalar() or 0
         obj = PlaylistRun(
             station_id=record.station_id,
             status=record.status,
             playlist_json=record.playlist_json,
+            episode=max_ep + 1,
         )
         self._session.add(obj)
         await self._session.commit()
@@ -204,6 +211,7 @@ class SqlitePlaylistRunRepository(PlaylistRunRepository):
         obj.status = record.status
         obj.playlist_json = record.playlist_json
         obj.error_message = record.error_message
+        obj.episode = record.episode
         obj.ma_playlist_id = record.ma_playlist_id
         obj.generation_secs = record.generation_secs
         await self._session.commit()

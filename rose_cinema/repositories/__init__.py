@@ -39,6 +39,7 @@ class PlaylistRunRecord:
     status: str = "pending"
     playlist_json: str = "[]"
     error_message: str | None = None
+    episode: int | None = None
     ma_playlist_id: str | None = None
     generation_secs: float | None = None
     created_at: str | None = None

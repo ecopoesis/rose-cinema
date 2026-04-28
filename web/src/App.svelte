@@ -240,7 +240,7 @@
                 {#each stationRuns[s.id] as run (run.id)}
                   <div class="run-row">
                     <div class="run-info">
-                      <span class="run-date">{formatRunDate(run.created_at)}</span>
+                      <span class="run-date">{#if run.episode}Ep {run.episode} · {/if}{formatRunDate(run.created_at)}</span>
                       <span class="run-meta">
                         {run.track_count} tracks · <span class="run-status" class:run-failed={run.status === 'failed'}>{run.status}</span>{#if run.generation_secs} · {run.generation_secs.toFixed(0)}s{/if}
                       </span>

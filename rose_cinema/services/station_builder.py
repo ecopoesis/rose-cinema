@@ -99,6 +99,7 @@ class StationBuilder:
         station: StationRecord,
         dj: DJRecord,
         songs: list[SongMetadata],
+        episode: int | None = None,
     ) -> list[PlaylistEntry]:
         """Build a complete playlist with interleaved DJ segments."""
         tts = get_tts_provider(dj.tts_provider)
@@ -128,7 +129,8 @@ class StationBuilder:
                 output_path=self._audio_dir / f"{run_id}_intro",
                 reference_audio=dj.tts_voice_ref,
             )
-            _tag_dj_audio(intro_audio, f"{station.name} — Intro ({run_id})", dj.name)
+            intro_title = f"{station.name} - Episode {episode} - Intro" if episode else f"{station.name} — Intro ({run_id})"
+            _tag_dj_audio(intro_audio, intro_title, dj.name)
             logger.info("[%s] Intro ready", station.name)
             entries.append(PlaylistEntry(
                 type="dj",
@@ -162,7 +164,8 @@ class StationBuilder:
                     output_path=self._audio_dir / f"{run_id}_seg{i:03d}",
                     reference_audio=dj.tts_voice_ref,
                 )
-                _tag_dj_audio(audio_path, f"{station.name} — DJ {dj_seg} ({run_id})", dj.name)
+                seg_title = f"{station.name} - Episode {episode} - Part {dj_seg}" if episode else f"{station.name} — DJ {dj_seg} ({run_id})"
+                _tag_dj_audio(audio_path, seg_title, dj.name)
                 logger.info("[%s] DJ segment %d: done", station.name, dj_seg)
                 entries.append(PlaylistEntry(
                     type="dj",

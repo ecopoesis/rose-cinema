@@ -82,6 +82,7 @@ class PlaylistRun(Base):
     )  # pending, generating, ready, playing, failed
     playlist_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ma_playlist_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     generation_secs: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
