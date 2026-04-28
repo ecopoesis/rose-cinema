@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
-import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
@@ -31,12 +31,11 @@ class SeedPool:
     source: SeedSource
 
 
-# In-memory TTL cache live on the SeedPoolBuilder instance.
-_CACHE_TTL_SECS = 24 * 3600
 _DEFAULT_PER_ARTIST_POOL_CAP = 4
 _SEED_ARTIST_POOL_CAP = 5
 _SIMILAR_ARTIST_FANOUT = 12
-_SIMILAR_ARTIST_TOP_SONGS = 8
+_SIMILAR_ARTIST_PICK = 8
+_SIMILAR_ARTIST_TOP_SONGS = 12
 _SEED_ARTIST_TOP_SONGS = 10
 _FETCH_CONCURRENCY = 6
 
@@ -56,19 +55,10 @@ class SeedPoolBuilder:
     def __init__(self, catalog: MusicCatalog, llm: LLMProvider):
         self._catalog = catalog
         self._llm = llm
-        self._cache: dict[tuple[str, int], tuple[float, SeedPool]] = {}
 
     async def build(self, music_source: str, target_count: int) -> SeedPool:
         seed_label = music_source.strip()
-        cache_key = (seed_label.lower(), (target_count // 5) * 5)
-        cached = self._cache.get(cache_key)
-        if cached and cached[0] > time.time():
-            logger.info("seed_pool cache hit: %r (source=%s, %d tracks)",
-                        seed_label, cached[1].source, len(cached[1].tracks))
-            return cached[1]
-
         pool = await self._build_uncached(seed_label, target_count)
-        self._cache[cache_key] = (time.time() + _CACHE_TTL_SECS, pool)
         logger.info(
             "seed_pool built: seed=%r source=%s tracks=%d unique_artists=%d",
             seed_label, pool.source, len(pool.tracks), len(pool.artists),
@@ -138,17 +128,23 @@ class SeedPoolBuilder:
                     similar_artists=0,
                 )
 
+        similar = list(seed_views.similar_artists)
+        if len(similar) > _SIMILAR_ARTIST_PICK:
+            similar = random.sample(similar, _SIMILAR_ARTIST_PICK)
+
         related_views = await asyncio.gather(
-            *(fetch_one(a) for a in seed_views.similar_artists),
+            *(fetch_one(a) for a in similar),
             return_exceptions=True,
         )
 
-        # Collect tracks per artist, with seed-specific cap
         by_artist: dict[str, list[CatalogTrack]] = defaultdict(list)
         artists_seen: dict[str, CatalogArtist] = {}
 
         artists_seen[seed_artist.apple_music_id] = seed_views.artist
-        for t in seed_views.top_songs[:_SEED_ARTIST_POOL_CAP]:
+        seed_songs = list(seed_views.top_songs)
+        if len(seed_songs) > _SEED_ARTIST_POOL_CAP:
+            seed_songs = random.sample(seed_songs, _SEED_ARTIST_POOL_CAP)
+        for t in seed_songs:
             by_artist[seed_artist.apple_music_id].append(t)
 
         for v in related_views:
@@ -157,7 +153,10 @@ class SeedPoolBuilder:
             if not v.artist.apple_music_id:
                 continue
             artists_seen.setdefault(v.artist.apple_music_id, v.artist)
-            for t in v.top_songs[:_DEFAULT_PER_ARTIST_POOL_CAP]:
+            songs = list(v.top_songs)
+            if len(songs) > _DEFAULT_PER_ARTIST_POOL_CAP:
+                songs = random.sample(songs, _DEFAULT_PER_ARTIST_POOL_CAP)
+            for t in songs:
                 by_artist[v.artist.apple_music_id].append(t)
 
         # Optional: under-target safety hop
@@ -317,7 +316,8 @@ class SeedPoolBuilder:
             if keep:
                 cleaned[aid] = keep
 
-        # Round-robin interleave so the LLM doesn't see one artist's whole catalog up front.
+        # Round-robin interleave then shuffle so the LLM sees a different
+        # ordering each run, breaking positional bias in index selection.
         ordered: list[CatalogTrack] = []
         keys = list(cleaned.keys())
         idx = 0
@@ -326,6 +326,7 @@ class SeedPoolBuilder:
             if cleaned[k]:
                 ordered.append(cleaned[k].pop(0))
             idx += 1
+        random.shuffle(ordered)
 
         artists = [artists_seen[k] for k in artists_seen]
 

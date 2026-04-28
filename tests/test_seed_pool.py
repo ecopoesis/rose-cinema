@@ -138,7 +138,7 @@ async def test_total_miss_returns_empty():
 
 
 @pytest.mark.asyncio
-async def test_cache_hit():
+async def test_no_cache_each_build_hits_catalog():
     seed = mk_artist("1", "Seed")
     catalog = FakeCatalog(
         artists_by_query={"seed": [seed]},
@@ -150,10 +150,9 @@ async def test_cache_hit():
     )
     builder = SeedPoolBuilder(catalog, FakeLLM([]))
 
-    pool1 = await builder.build("Seed", target_count=10)
+    await builder.build("Seed", target_count=10)
     calls_before = len(catalog.calls)
-    pool2 = await builder.build("Seed", target_count=10)
+    await builder.build("Seed", target_count=10)
     calls_after = len(catalog.calls)
 
-    assert pool1 is pool2
-    assert calls_after == calls_before, "cache hit should make zero catalog calls"
+    assert calls_after > calls_before, "each build should hit the catalog fresh"

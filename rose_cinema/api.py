@@ -302,10 +302,12 @@ async def generate_playlist(
             seed_builder = SeedPoolBuilder(catalog, llm) if catalog else None
             if catalog is None:
                 logger.warning("MusicKit catalog not configured — pool grounding disabled, falling back to LLM-discovery")
-            logger.info("[%s] Picking tracks for %d minutes from source: %s", station.name, station.length_minutes, station.music_source[:80])
+            exclude_ids = await run_repo.list_recent_track_ids(station.id, max_runs=3)
+            logger.info("[%s] Picking tracks for %d minutes from source: %s (excluding %d recent)", station.name, station.length_minutes, station.music_source[:80], len(exclude_ids))
             songs = await TrackPicker(llm, catalog, seed_builder).pick(
                 music_source=station.music_source,
                 target_minutes=station.length_minutes,
+                exclude_ids=exclude_ids,
             )
             logger.info(
                 "TrackPicker selected %d songs for station '%s'",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -186,6 +188,24 @@ class SqlitePlaylistRunRepository(PlaylistRunRepository):
             .order_by(PlaylistRun.created_at.desc())
         )
         return [_run_to_record(r) for r in result.scalars().all()]
+
+    async def list_recent_track_ids(self, station_id: str, max_runs: int = 3) -> set[str]:
+        result = await self._session.execute(
+            select(PlaylistRun.playlist_json)
+            .where(PlaylistRun.station_id == station_id, PlaylistRun.status == "ready")
+            .order_by(PlaylistRun.created_at.desc())
+            .limit(max_runs)
+        )
+        ids: set[str] = set()
+        for (playlist_json,) in result.all():
+            try:
+                entries = json.loads(playlist_json)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for entry in entries:
+                if entry.get("type") == "song" and entry.get("apple_music_id"):
+                    ids.add(entry["apple_music_id"])
+        return ids
 
     async def create(self, record: PlaylistRunRecord) -> PlaylistRunRecord:
         result = await self._session.execute(

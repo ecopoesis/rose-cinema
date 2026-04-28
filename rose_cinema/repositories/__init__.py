@@ -90,6 +90,9 @@ class PlaylistRunRepository(ABC):
     async def list_by_station(self, station_id: str) -> list[PlaylistRunRecord]: ...
 
     @abstractmethod
+    async def list_recent_track_ids(self, station_id: str, max_runs: int = 3) -> set[str]: ...
+
+    @abstractmethod
     async def create(self, record: PlaylistRunRecord) -> PlaylistRunRecord: ...
 
     @abstractmethod

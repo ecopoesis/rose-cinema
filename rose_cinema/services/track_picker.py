@@ -62,12 +62,17 @@ class TrackPicker:
         music_source: str,
         target_minutes: int,
         avg_song_secs: int = 220,
+        exclude_ids: set[str] | None = None,
     ) -> list[SongMetadata]:
         target_count = max(3, round((target_minutes * 60) / avg_song_secs))
 
         if self._seed_builder is not None:
             pool = await self._seed_builder.build(music_source, target_count)
             if pool.tracks:
+                if exclude_ids:
+                    before = len(pool.tracks)
+                    pool.tracks = [t for t in pool.tracks if t.apple_music_id not in exclude_ids]
+                    logger.info("Excluded %d recently-played tracks from pool", before - len(pool.tracks))
                 return await self._pick_from_pool(pool, music_source, target_count)
             logger.info("seed_pool empty for %r — falling back to LLM-discovery", music_source)
 
@@ -110,7 +115,7 @@ class TrackPicker:
 
         raw = await self._llm.complete(
             messages=[LLMMessage("system", system), LLMMessage("user", user)],
-            temperature=0.5,
+            temperature=0.85,
             max_tokens=600,
         )
         logger.debug("TrackPicker pool curation raw: %s", raw)
