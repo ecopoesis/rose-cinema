@@ -8,12 +8,13 @@ services:
       POSTGRES_USER: rose
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rose}
     volumes:
-      - /opt/containers/postgres:/var/lib/postgresql/data
+      - /opt/containers/rose-cinema-postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rose -d rose_cinema"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+      start_period: 10s
 
   radiobot:
     build:
