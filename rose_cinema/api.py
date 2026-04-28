@@ -438,17 +438,23 @@ async def play_run(
             art_url = f"{base}/api/stations/{station.id}/album-art"
 
     items: list[str | dict] = []
+    dj_seq = 0
     for e in json.loads(run.playlist_json):
         if e.get("type") == "song" and e.get("apple_music_id"):
             items.append(f"apple_music://track/{e['apple_music_id']}")
         elif e.get("type") == "dj" and e.get("audio_file"):
-            url = f"{base}/audio/{Path(e['audio_file']).name}"
+            fname = Path(e['audio_file']).name
+            url = f"{base}/audio/{fname}"
+            run_tag = fname.split("_")[0]
+            seg_label = "Intro" if dj_seq == 0 else f"DJ {dj_seq}"
+            dj_seq += 1
+            seg_name = f"{station.name} — {seg_label} ({run_tag})" if station else f"DJ Segment {dj_seq}"
             item = {
                 "uri": url,
                 "item_id": url,
                 "provider": "builtin",
                 "media_type": "track",
-                "name": station.name if station else "DJ Segment",
+                "name": seg_name,
                 "artists": [{
                     "name": dj_name,
                     "item_id": dj_name,
@@ -510,19 +516,24 @@ async def save_run_to_ma(
     ordered: list[str] = []
     dj_metadata: list[dict] = []
     apple_uris: list[str] = []
+    dj_seq = 0
     for e in json.loads(run.playlist_json):
         if e.get("type") == "song" and e.get("apple_music_id"):
             uri = f"apple_music://track/{e['apple_music_id']}"
             ordered.append(uri); apple_uris.append(uri)
         elif e.get("type") == "dj" and e.get("audio_file"):
-            url = f"{base}/audio/{Path(e['audio_file']).name}"
+            fname = Path(e['audio_file']).name
+            url = f"{base}/audio/{fname}"
             ordered.append(url)
+            run_tag = fname.split("_")[0]
+            seg_label = "Intro" if dj_seq == 0 else f"DJ {dj_seq}"
+            dj_seq += 1
             meta = {
                 "uri": url,
                 "item_id": url,
                 "provider": "builtin",
                 "media_type": "track",
-                "name": station_name,
+                "name": f"{station_name} — {seg_label} ({run_tag})",
                 "artists": [{
                     "name": dj_name,
                     "item_id": dj_name,

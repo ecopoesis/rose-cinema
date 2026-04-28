@@ -128,7 +128,7 @@ class StationBuilder:
                 output_path=self._audio_dir / f"{run_id}_intro",
                 reference_audio=dj.tts_voice_ref,
             )
-            _tag_dj_audio(intro_audio, station.name, dj.name)
+            _tag_dj_audio(intro_audio, f"{station.name} — Intro ({run_id})", dj.name)
             logger.info("[%s] Intro ready", station.name)
             entries.append(PlaylistEntry(
                 type="dj",
@@ -162,7 +162,7 @@ class StationBuilder:
                     output_path=self._audio_dir / f"{run_id}_seg{i:03d}",
                     reference_audio=dj.tts_voice_ref,
                 )
-                _tag_dj_audio(audio_path, station.name, dj.name)
+                _tag_dj_audio(audio_path, f"{station.name} — DJ {dj_seg} ({run_id})", dj.name)
                 logger.info("[%s] DJ segment %d: done", station.name, dj_seg)
                 entries.append(PlaylistEntry(
                     type="dj",
