@@ -220,7 +220,7 @@
           {/if}
           <div class="card-meta">
             {#if s.music_source}Source: {s.music_source}<br>{/if}
-            DJ: {dj ? `${dj.name} · ${dj.tts_provider} / ${dj.tts_voice_id}` : '(none)'}<br>
+            DJ: {dj ? `${dj.name} · ${dj.tts_provider} / ${dj.tts_voice_ref || dj.tts_voice_id}` : '(none)'}<br>
             {s.length_minutes} min · talk {s.dj_talk_rate.toFixed(2)}
             · babble {s.dj_babble_rate.toFixed(2)}
             · max {s.dj_max_length_secs}s
@@ -277,7 +277,7 @@
               <button class="btn btn-sm btn-danger" onclick={() => handleDeleteDJ(d)}>Delete</button>
             </div>
           </div>
-          <div class="card-meta">{d.tts_provider} · {d.tts_voice_id}</div>
+          <div class="card-meta">{d.tts_provider} · {d.tts_voice_ref || d.tts_voice_id}</div>
           {#if d.agent_md}
             <div class="card-preview">
               {d.agent_md.length > 200 ? d.agent_md.slice(0, 200) + '…' : d.agent_md}

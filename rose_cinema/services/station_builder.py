@@ -109,7 +109,7 @@ class StationBuilder:
         total_songs = len(songs)
         logger.info(
             "[%s] Starting playlist build: %d songs, DJ=%s (%s/%s), talk_rate=%.2f",
-            station.name, total_songs, dj.name, dj.tts_provider, dj.tts_voice_id,
+            station.name, total_songs, dj.name, dj.tts_provider, dj.tts_voice_ref or dj.tts_voice_id,
             station.dj_talk_rate,
         )
 
