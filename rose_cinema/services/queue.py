@@ -5,6 +5,10 @@ import logging
 import random
 from datetime import datetime, timezone
 
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -54,7 +58,7 @@ class EventQueue:
         event = result.scalar_one_or_none()
         if event:
             event.status = "processing"
-            event.started_at = datetime.now(timezone.utc)
+            event.started_at = _utcnow()
             await session.flush()
         return event
 
@@ -63,7 +67,7 @@ class EventQueue:
     ) -> None:
         event.status = "completed"
         event.result = result
-        event.completed_at = datetime.now(timezone.utc)
+        event.completed_at = _utcnow()
         await session.flush()
         logger.info(
             "[%s] completed %s[%d]",
@@ -85,7 +89,7 @@ class EventQueue:
             )
         else:
             event.status = "failed"
-            event.completed_at = datetime.now(timezone.utc)
+            event.completed_at = _utcnow()
             logger.error(
                 "[%s] %s[%d] permanently failed: %s",
                 event.run_id[:8], event.step_type, event.step_index, error,
