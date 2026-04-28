@@ -86,8 +86,14 @@ class TrackPicker:
         music_source: str,
         target_count: int,
     ) -> list[SongMetadata]:
+        artist_tags = dict(pool.artist_tags)
+        for a in pool.artists:
+            key = a.name.lower().strip()
+            if key not in artist_tags and a.genres:
+                artist_tags[key] = a.genres
+
         listing = "\n".join(
-            f"  {i} | {t.title} — {t.artist} ({t.year or '?'}) [{t.album or '?'}]"
+            _format_pool_line(i, t, artist_tags)
             for i, t in enumerate(pool.tracks)
         )
 
@@ -103,6 +109,7 @@ class TrackPicker:
             f"- Indices must be in [0, {len(pool.tracks) - 1}].\n"
             "- Same artist no more than twice across the picks.\n"
             f"-{seed_hint}\n"
+            "- Tags in {{}} show genre/style. Prefer tracks whose tags align with the seed's musical identity.\n"
             "- Span eras: when the pool offers a year range, prefer mixing.\n"
             "- Order for arc: opener with energy, mid section deeper cuts, closer that resolves.\n"
             "No commentary, no extra keys."
@@ -280,6 +287,16 @@ def _cap_per_artist(songs: list[SongMetadata], max_per_artist: int) -> list[Song
         counts[key] = counts.get(key, 0) + 1
         out.append(s)
     return out
+
+
+def _format_pool_line(
+    i: int, t: CatalogTrack, artist_tags: dict[str, tuple[str, ...]],
+) -> str:
+    base = f"  {i} | {t.title} — {t.artist} ({t.year or '?'}) [{t.album or '?'}]"
+    tags = artist_tags.get(t.artist.lower().strip(), ())
+    if tags:
+        return f"{base} {{{', '.join(tags)}}}"
+    return base
 
 
 def _best_match(proposal: SongMetadata, results: list[CatalogTrack]) -> CatalogTrack | None:

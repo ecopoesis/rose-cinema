@@ -98,3 +98,14 @@ def mk_track(track_id: str, title: str, artist: str, year: str = "2020") -> Cata
 
 def mk_artist(artist_id: str, name: str, *genres: str) -> CatalogArtist:
     return CatalogArtist(apple_music_id=artist_id, name=name, genres=tuple(genres))
+
+
+class FakeMusicBrainz:
+
+    def __init__(self, tags_by_name: dict[str, tuple[str, ...]] | None = None):
+        self._tags = tags_by_name or {}
+        self.calls: list[str] = []
+
+    async def get_artist_tags(self, artist_name: str) -> tuple[str, ...]:
+        self.calls.append(artist_name)
+        return self._tags.get(artist_name.lower().strip(), ())

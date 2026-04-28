@@ -51,10 +51,12 @@ async def handle_pick_tracks(payload: dict) -> dict:
     from rose_cinema.services.track_picker import TrackPicker
     from rose_cinema.services.seed_pool import SeedPoolBuilder
     from rose_cinema.services.musickit import get_music_catalog
+    from rose_cinema.services.musicbrainz import get_musicbrainz_client
 
     llm = get_llm_provider()
     catalog = get_music_catalog()
-    seed_builder = SeedPoolBuilder(catalog, llm) if catalog else None
+    mb_client = get_musicbrainz_client()
+    seed_builder = SeedPoolBuilder(catalog, llm, mb_client) if catalog else None
 
     songs = await TrackPicker(llm, catalog, seed_builder).pick(
         music_source=music_source,

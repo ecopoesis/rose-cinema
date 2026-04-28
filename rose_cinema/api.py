@@ -27,6 +27,7 @@ from rose_cinema.schemas import (
     PlaylistRunSummary, ProgressResponse, EventResponse,
     MAPlayRequest, MAPlayResponse,
     DJExport, StationExport, ExportData, ImportResult,
+    TestSongResponse, TestPlaylistResponse,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -435,6 +436,68 @@ async def delete_run(run_id: str, session: AsyncSession = Depends(get_session)):
     from rose_cinema.services.cleanup import cleanup_run
     ma_client = get_music_assistant_client()
     await cleanup_run(run, run_repo, settings.dj_audio_dir, ma_client)
+
+
+# ── Test playlist (track-only preview) ────────────────────────────────
+
+
+@app.post(
+    "/api/stations/{station_id}/test-playlist",
+    response_model=TestPlaylistResponse,
+)
+async def test_playlist(
+    station_id: str, session: AsyncSession = Depends(get_session),
+):
+    station_repo = SqlStationRepository(session)
+    station = await station_repo.get(station_id)
+    if not station:
+        raise HTTPException(404, "Station not found")
+    if not station.music_source:
+        raise HTTPException(400, "Station has no music_source")
+
+    import time as _time
+
+    from rose_cinema.providers.factory import get_llm_provider
+    from rose_cinema.services.musickit import get_music_catalog
+    from rose_cinema.services.musicbrainz import get_musicbrainz_client
+    from rose_cinema.services.seed_pool import SeedPoolBuilder
+    from rose_cinema.services.track_picker import TrackPicker
+
+    t0 = _time.monotonic()
+    llm = get_llm_provider()
+    catalog = get_music_catalog()
+    mb_client = get_musicbrainz_client()
+    seed_builder = SeedPoolBuilder(catalog, llm, mb_client) if catalog else None
+
+    run_repo = SqlPlaylistRunRepository(session)
+    exclude_ids = set(await run_repo.list_recent_track_ids(station_id, max_runs=3))
+
+    songs = await TrackPicker(llm, catalog, seed_builder).pick(
+        music_source=station.music_source,
+        target_minutes=station.length_minutes,
+        exclude_ids=exclude_ids,
+    )
+    elapsed = _time.monotonic() - t0
+
+    storefront = settings.musickit_storefront or "us"
+    return TestPlaylistResponse(
+        songs=[
+            TestSongResponse(
+                title=s.title,
+                artist=s.artist,
+                album=s.album,
+                year=s.year,
+                apple_music_id=s.apple_music_id,
+                apple_music_url=(
+                    f"https://music.apple.com/{storefront}/song/{s.apple_music_id}"
+                    if s.apple_music_id else ""
+                ),
+                duration_secs=s.duration_secs,
+            )
+            for s in songs
+        ],
+        generation_secs=round(elapsed, 1),
+    )
 
 
 # ── Music Assistant playback ──────────────────────────────────────────

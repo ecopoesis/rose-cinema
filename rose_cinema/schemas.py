@@ -72,6 +72,24 @@ class StationResponse(BaseModel):
     album_art: str
 
 
+# ── Test Playlist (track-only preview) ────────────────────────────────
+
+
+class TestSongResponse(BaseModel):
+    title: str
+    artist: str
+    album: str = ""
+    year: str = ""
+    apple_music_id: str = ""
+    apple_music_url: str = ""
+    duration_secs: float = 0.0
+
+
+class TestPlaylistResponse(BaseModel):
+    songs: list[TestSongResponse]
+    generation_secs: float
+
+
 # ── Playlist Generation ───────────────────────────────────────────────
 
 

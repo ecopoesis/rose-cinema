@@ -29,6 +29,8 @@ export const fetchStationRuns = (stationId) =>
   api(`/stations/${stationId}/runs`);
 export const deleteRun = (runId) =>
   api(`/runs/${runId}`, { method: 'DELETE' });
+export const testPlaylist = (stationId) =>
+  api(`/stations/${stationId}/test-playlist`, { method: 'POST' });
 
 export async function uploadAlbumArt(stationId, file) {
   const form = new FormData();

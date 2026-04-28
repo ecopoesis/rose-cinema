@@ -5,7 +5,7 @@ import pytest
 from rose_cinema.services.catalog import CatalogArtistViews
 from rose_cinema.services.seed_pool import SeedPoolBuilder
 
-from tests._fakes import FakeCatalog, FakeLLM, mk_artist, mk_track
+from tests._fakes import FakeCatalog, FakeLLM, FakeMusicBrainz, mk_artist, mk_track
 
 
 @pytest.mark.asyncio
@@ -156,3 +156,44 @@ async def test_no_cache_each_build_hits_catalog():
     calls_after = len(catalog.calls)
 
     assert calls_after > calls_before, "each build should hit the catalog fresh"
+
+
+@pytest.mark.asyncio
+async def test_enrich_merges_am_and_mb_tags():
+    seed = mk_artist("1", "Palace", "Alternative", "Rock")
+    catalog = FakeCatalog(
+        artists_by_query={"palace": [seed]},
+        artist_views={"1": CatalogArtistViews(
+            artist=seed,
+            top_songs=[mk_track("X1", "X", "Palace")],
+            similar_artists=[],
+        )},
+    )
+    mb = FakeMusicBrainz(tags_by_name={"palace": ("shoegaze", "dream pop", "alternative")})
+    builder = SeedPoolBuilder(catalog, FakeLLM([]), mb_client=mb)
+    pool = await builder.build("Palace", target_count=5)
+
+    tags = pool.artist_tags.get("palace", ())
+    assert "shoegaze" in tags
+    assert "dream pop" in tags
+    assert "Rock" in tags
+    assert tags.index("shoegaze") < tags.index("Rock")
+
+
+@pytest.mark.asyncio
+async def test_enrich_skipped_when_no_mb_client():
+    seed = mk_artist("1", "Palace", "Alternative", "Rock")
+    catalog = FakeCatalog(
+        artists_by_query={"palace": [seed]},
+        artist_views={"1": CatalogArtistViews(
+            artist=seed,
+            top_songs=[mk_track("X1", "X", "Palace")],
+            similar_artists=[],
+        )},
+    )
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+    pool = await builder.build("Palace", target_count=5)
+
+    tags = pool.artist_tags.get("palace", ())
+    assert "Alternative" in tags
+    assert "Rock" in tags

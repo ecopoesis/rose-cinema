@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     musickit_private_key: str = Field(default="")  # inline PEM (preferred over path)
     musickit_storefront: str = Field(default="us")
 
+    # MusicBrainz tag enrichment — set to "RoseCinema/1.0 (you@email)" to enable
+    musicbrainz_user_agent: str = Field(default="")
+
     # Music Assistant (playback)
     ma_url: str = Field(default="")           # e.g. http://server03.local:8095
     ma_token: str = Field(default="")

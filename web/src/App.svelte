@@ -19,6 +19,7 @@
 
   let expandedRuns = $state({});
   let stationRuns = $state({});
+  let testView = $state(null);
 
   function showToast(msg, error = false) {
     toastMsg = msg; toastErr = error; toastVisible = true;
@@ -121,6 +122,22 @@
     finally { btn.disabled = false; btn.textContent = orig; }
   }
 
+  async function handleTest(station) {
+    testView = { station, loading: true, songs: [], error: null, generationSecs: null };
+    try {
+      const result = await api.testPlaylist(station.id);
+      testView = { ...testView, loading: false, songs: result.songs, generationSecs: result.generation_secs };
+    } catch (e) {
+      testView = { ...testView, loading: false, error: e.message };
+    }
+  }
+
+  function formatDuration(secs) {
+    const m = Math.floor(secs / 60);
+    const s = Math.round(secs % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
   async function toggleRuns(stationId) {
     if (expandedRuns[stationId]) {
       expandedRuns = { ...expandedRuns, [stationId]: false };
@@ -206,6 +223,44 @@
   }
 </script>
 
+{#if testView}
+  <div class="test-view">
+    <div class="test-header">
+      <button class="btn btn-sm btn-secondary" onclick={() => testView = null}>&larr; Back</button>
+      <h2>Test: {testView.station.name}</h2>
+    </div>
+    {#if testView.loading}
+      <div class="test-loading">Picking tracks&hellip;</div>
+    {:else if testView.error}
+      <div class="test-error">{testView.error}</div>
+    {:else}
+      <div class="test-meta">
+        {testView.songs.length} tracks &middot;
+        {formatDuration(testView.songs.reduce((a, s) => a + s.duration_secs, 0))} total &middot;
+        generated in {testView.generationSecs}s
+      </div>
+      <ol class="test-tracks">
+        {#each testView.songs as song, i}
+          <li class="test-track">
+            <span class="track-num">{i + 1}</span>
+            <div class="track-info">
+              <span class="track-title">{song.title}</span>
+              <span class="track-artist">{song.artist}</span>
+              {#if song.album}
+                <span class="track-album">{song.album}{#if song.year} ({song.year}){/if}</span>
+              {/if}
+            </div>
+            <span class="track-dur">{formatDuration(song.duration_secs)}</span>
+            {#if song.apple_music_url}
+              <a href={song.apple_music_url} target="_blank" rel="noopener" class="track-link" title="Open in Apple Music">&#9834;</a>
+            {/if}
+          </li>
+        {/each}
+      </ol>
+    {/if}
+  </div>
+{:else}
+
 <h1>Rose Cinema</h1>
 
 <nav class="tabs">
@@ -278,6 +333,7 @@
             </div>
           {/if}
           <div class="card-footer">
+            <button class="btn btn-secondary" onclick={() => handleTest(s)}>Test</button>
             <button class="btn btn-primary" onclick={(e) => handleGenerate(s, e.target)}>Generate</button>
           </div>
         </div>
@@ -313,6 +369,8 @@
       {/each}
     {/if}
   </div>
+{/if}
+
 {/if}
 
 {#if modal.open}
@@ -368,7 +426,7 @@
   .run-meta { font-size: 0.75rem; color: #666; }
   .run-status { text-transform: capitalize; }
   .run-failed { color: #c8395a; }
-  .card-footer { margin-top: 0.75rem; display: flex; justify-content: flex-end; }
+  .card-footer { margin-top: 0.75rem; display: flex; justify-content: flex-end; gap: 0.5rem; }
 
   .empty { color: #888; padding: 2rem; text-align: center; background: #1a1a1a; border-radius: 0.5rem; }
 
@@ -376,4 +434,22 @@
            background: #2a2a2a; padding: 0.75rem 1.25rem; border-radius: 0.375rem;
            border: 1px solid #444; font-size: 0.875rem; z-index: 200; max-width: 90vw; }
   .toast.error { border-color: #c8395a; color: #ffb4c5; }
+
+  .test-view { max-width: 640px; }
+  .test-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+  .test-header h2 { font-weight: 500; font-size: 1.1rem; margin: 0; }
+  .test-loading { color: #888; padding: 2rem; text-align: center; }
+  .test-error { color: #ffb4c5; padding: 1rem; background: #1a1a1a; border: 1px solid #c8395a; border-radius: 0.5rem; }
+  .test-meta { font-size: 0.85rem; color: #888; margin-bottom: 0.75rem; }
+  .test-tracks { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  .test-track { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.65rem;
+                background: #1a1a1a; border-radius: 0.35rem; }
+  .track-num { font-size: 0.8rem; color: #555; min-width: 1.5rem; text-align: right; }
+  .track-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+  .track-title { font-size: 0.9rem; color: #eee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-artist { font-size: 0.8rem; color: #999; }
+  .track-album { font-size: 0.75rem; color: #666; }
+  .track-dur { font-size: 0.8rem; color: #666; white-space: nowrap; }
+  .track-link { color: #c8395a; text-decoration: none; font-size: 1.1rem; padding: 0 0.25rem; }
+  .track-link:hover { color: #e45a7a; }
 </style>

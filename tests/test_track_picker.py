@@ -133,3 +133,27 @@ async def test_pool_path_handles_unparseable_llm_output():
     # target_count = round(6*60/200) = 2; cap_per_artist allows ≤2 per artist.
     assert len(songs) >= 1
     assert all(s.apple_music_id in {"T0", "T1", "T2"} for s in songs)
+
+
+@pytest.mark.asyncio
+async def test_pool_listing_includes_genre_tags():
+    """When pool.artist_tags is populated, the LLM prompt includes {tag, tag} per track."""
+    pool = SeedPool(
+        seed_label="seed",
+        seed_artist=mk_artist("1", "Seed"),
+        tracks=[mk_track("T0", "Song A", "Alice"), mk_track("T1", "Song B", "Bob")],
+        artists=[mk_artist("A1", "Alice", "Pop"), mk_artist("B1", "Bob")],
+        source="artist_seed",
+        artist_tags={
+            "alice": ("dream pop", "shoegaze"),
+            "bob": ("grunge", "punk rock"),
+        },
+    )
+    llm = FakeLLM(['{"picks": [0, 1]}'])
+    picker = TrackPicker(llm, catalog=None, seed_builder=FakeSeedBuilder(pool))
+
+    await picker.pick(music_source="seed", target_minutes=6, avg_song_secs=200)
+
+    prompt = llm.calls[0][-1].content
+    assert "{dream pop, shoegaze}" in prompt
+    assert "{grunge, punk rock}" in prompt

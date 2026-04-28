@@ -29,6 +29,7 @@ class SeedPool:
     tracks: list[CatalogTrack]
     artists: list[CatalogArtist]
     source: SeedSource
+    artist_tags: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 _DEFAULT_PER_ARTIST_POOL_CAP = 4
@@ -52,16 +53,24 @@ class SeedPoolBuilder:
     which case TrackPicker reverts to the legacy LLM-discovers-then-verifies path.
     """
 
-    def __init__(self, catalog: MusicCatalog, llm: LLMProvider):
+    def __init__(
+        self,
+        catalog: MusicCatalog,
+        llm: LLMProvider,
+        mb_client: object | None = None,
+    ):
         self._catalog = catalog
         self._llm = llm
+        self._mb = mb_client
 
     async def build(self, music_source: str, target_count: int) -> SeedPool:
         seed_label = music_source.strip()
         pool = await self._build_uncached(seed_label, target_count)
+        await self._enrich_with_tags(pool)
         logger.info(
-            "seed_pool built: seed=%r source=%s tracks=%d unique_artists=%d",
+            "seed_pool built: seed=%r source=%s tracks=%d unique_artists=%d tags=%d",
             seed_label, pool.source, len(pool.tracks), len(pool.artists),
+            len(pool.artist_tags),
         )
         return pool
 
@@ -215,6 +224,32 @@ class SeedPoolBuilder:
             artists_seen.setdefault(v.artist.apple_music_id, v.artist)
             for t in v.top_songs[:_DEFAULT_PER_ARTIST_POOL_CAP]:
                 by_artist[v.artist.apple_music_id].append(t)
+
+    # ── Tag enrichment ──────────────────────────────────────────────────
+
+    async def _enrich_with_tags(self, pool: SeedPool) -> None:
+        for a in pool.artists:
+            key = a.name.lower().strip()
+            if a.genres:
+                pool.artist_tags[key] = a.genres
+
+        if self._mb is None:
+            return
+
+        seen_keys: set[str] = set()
+        for a in pool.artists:
+            key = a.name.lower().strip()
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            mb_tags = await self._mb.get_artist_tags(a.name)
+            if mb_tags:
+                existing = set(pool.artist_tags.get(key, ()))
+                merged = list(mb_tags) + [
+                    g for g in existing
+                    if g.lower() not in {t.lower() for t in mb_tags}
+                ]
+                pool.artist_tags[key] = tuple(merged[:10])
 
     # ── Path C helpers ─────────────────────────────────────────────────
 
