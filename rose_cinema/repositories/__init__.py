@@ -29,6 +29,9 @@ class StationRecord:
     max_playlists: int = 0
     dj_id: str | None = None
     music_source: str = ""
+    source_artists: list[str] | None = None
+    source_albums: list[str] | None = None
+    source_tracks: list[str] | None = None
     album_art: str = ""
 
 

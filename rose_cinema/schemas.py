@@ -44,6 +44,9 @@ class StationCreate(BaseModel):
     max_playlists: int = Field(default=0, ge=0)
     dj_id: str | None = None
     music_source: str = Field(default="")
+    source_artists: list[str] | None = None
+    source_albums: list[str] | None = None
+    source_tracks: list[str] | None = None
 
 
 class StationUpdate(BaseModel):
@@ -56,6 +59,9 @@ class StationUpdate(BaseModel):
     max_playlists: int | None = Field(default=None, ge=0)
     dj_id: str | None = None
     music_source: str | None = None
+    source_artists: list[str] | None = None
+    source_albums: list[str] | None = None
+    source_tracks: list[str] | None = None
 
 
 class StationResponse(BaseModel):
@@ -69,6 +75,9 @@ class StationResponse(BaseModel):
     max_playlists: int
     dj_id: str | None
     music_source: str
+    source_artists: list[str] | None = None
+    source_albums: list[str] | None = None
+    source_tracks: list[str] | None = None
     album_art: str
 
 
@@ -194,6 +203,9 @@ class StationExport(BaseModel):
     dj_max_length_secs: int = Field(default=30, ge=5, le=120)
     max_playlists: int = Field(default=0, ge=0)
     music_source: str = ""
+    source_artists: list[str] | None = None
+    source_albums: list[str] | None = None
+    source_tracks: list[str] | None = None
     dj_name: str | None = None
     album_art: str = ""
 

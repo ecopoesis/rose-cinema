@@ -12,10 +12,16 @@
   let dj_babble_rate = $state(init.dj_babble_rate ?? 0.5);
   let dj_max_length_secs = $state(init.dj_max_length_secs ?? 30);
   let max_playlists = $state(init.max_playlists ?? 0);
+  let source_artists = $state((init.source_artists ?? []).join('\n'));
+  let source_albums = $state((init.source_albums ?? []).join('\n'));
+  let source_tracks = $state((init.source_tracks ?? []).join('\n'));
   let artFile = $state(null);
   let artPreview = $state(init.album_art ? `/api/stations/${init.id}/album-art` : '');
   let removeArt = $state(false);
   let saving = $state(false);
+  let showSources = $state(
+    !!(init.source_artists?.length || init.source_albums?.length || init.source_tracks?.length)
+  );
 
   function handleArtChange(e) {
     const file = e.target.files?.[0];
@@ -31,10 +37,17 @@
     removeArt = true;
   }
 
+  function linesToList(text) {
+    return text.split('\n').map(s => s.trim()).filter(Boolean);
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     saving = true;
     try {
+      const artists = linesToList(source_artists);
+      const albums = linesToList(source_albums);
+      const tracks = linesToList(source_tracks);
       await onsave({
         name: name.trim(),
         description: description.trim(),
@@ -45,6 +58,9 @@
         dj_babble_rate: Number(dj_babble_rate),
         dj_max_length_secs: Number(dj_max_length_secs),
         max_playlists: Number(max_playlists),
+        source_artists: artists.length ? artists : null,
+        source_albums: albums.length ? albums : null,
+        source_tracks: tracks.length ? tracks : null,
         _artFile: artFile,
         _removeArt: removeArt,
       });
@@ -78,6 +94,31 @@
       <label for="s-source">Music Source</label>
       <textarea id="s-source" bind:value={music_source} rows="2"
                 placeholder="e.g. jazz vocals, Radiohead, 90s hip-hop"></textarea>
+    </div>
+    <div class="field">
+      <button type="button" class="btn btn-sm btn-link source-toggle"
+              onclick={() => showSources = !showSources}>
+        {showSources ? '▾' : '▸'} Explicit Sources
+      </button>
+      {#if showSources}
+        <div class="source-fields">
+          <div class="field">
+            <label for="s-src-artists">Artists <span class="hint">(one per line)</span></label>
+            <textarea id="s-src-artists" bind:value={source_artists} rows="3"
+                      placeholder="Bon Iver&#10;Iron & Wine"></textarea>
+          </div>
+          <div class="field">
+            <label for="s-src-albums">Albums <span class="hint">(one per line)</span></label>
+            <textarea id="s-src-albums" bind:value={source_albums} rows="2"
+                      placeholder="For Emma, Forever Ago"></textarea>
+          </div>
+          <div class="field">
+            <label for="s-src-tracks">Tracks <span class="hint">(one per line)</span></label>
+            <textarea id="s-src-tracks" bind:value={source_tracks} rows="2"
+                      placeholder="Skinny Love&#10;Naked As We Came"></textarea>
+          </div>
+        </div>
+      {/if}
     </div>
     <div class="field">
       <label for="s-dj">DJ</label>
@@ -126,4 +167,9 @@
 <style>
   .art-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
   .art-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 0.25rem; border: 1px solid #333; }
+  .source-toggle { padding: 0; color: var(--text-muted, #999); font-size: 0.85rem; text-decoration: none; background: none; border: none; cursor: pointer; }
+  .source-toggle:hover { color: var(--text, #ccc); }
+  .source-fields { margin-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border, #333); }
+  .source-fields .field { margin-bottom: 0.5rem; }
+  .hint { font-size: 0.75rem; color: var(--text-muted, #888); }
 </style>

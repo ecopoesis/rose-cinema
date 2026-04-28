@@ -189,6 +189,7 @@ async def update_station(
     for field_name in (
         "name", "description", "length_minutes", "dj_talk_rate",
         "dj_babble_rate", "dj_max_length_secs", "max_playlists", "dj_id", "music_source",
+        "source_artists", "source_albums", "source_tracks",
     ):
         val = getattr(body, field_name)
         if val is not None:
@@ -324,6 +325,9 @@ async def generate_playlist(
             "length_minutes": station.length_minutes,
             "exclude_ids": exclude_ids,
             "songs_override": songs_override,
+            "source_artists": station.source_artists,
+            "source_albums": station.source_albums,
+            "source_tracks": station.source_tracks,
         },
     )
     await session.commit()
@@ -476,6 +480,9 @@ async def test_playlist(
         music_source=station.music_source,
         target_minutes=station.length_minutes,
         exclude_ids=exclude_ids,
+        source_artists=station.source_artists,
+        source_albums=station.source_albums,
+        source_tracks=station.source_tracks,
     )
     elapsed = _time.monotonic() - t0
 

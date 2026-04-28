@@ -15,7 +15,7 @@ class FakeSeedBuilder:
         self._pool = pool
         self.calls = 0
 
-    async def build(self, music_source: str, target_count: int) -> SeedPool:
+    async def build(self, music_source: str, target_count: int, **kwargs) -> SeedPool:
         self.calls += 1
         return self._pool
 

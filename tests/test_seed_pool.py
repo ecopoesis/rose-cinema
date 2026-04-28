@@ -159,6 +159,100 @@ async def test_no_cache_each_build_hits_catalog():
 
 
 @pytest.mark.asyncio
+async def test_multi_artist_pool_from_explicit_sources():
+    bi = mk_artist("1", "Bon Iver", "Indie Folk")
+    iw = mk_artist("2", "Iron & Wine", "Folk")
+    catalog = FakeCatalog(
+        artists_by_query={
+            "bon iver": [bi],
+            "iron & wine": [iw],
+        },
+        artist_views={
+            "1": CatalogArtistViews(
+                artist=bi,
+                top_songs=[mk_track(f"B{i}", f"BI Song {i}", "Bon Iver") for i in range(6)],
+                similar_artists=[],
+            ),
+            "2": CatalogArtistViews(
+                artist=iw,
+                top_songs=[mk_track(f"I{i}", f"IW Song {i}", "Iron & Wine") for i in range(6)],
+                similar_artists=[],
+            ),
+        },
+    )
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+    pool = await builder.build(
+        "chill folk", target_count=8,
+        source_artists=["Bon Iver", "Iron & Wine"],
+    )
+    assert pool.source == "multi_artist_seed"
+    artists_in_pool = {t.artist for t in pool.tracks}
+    assert "Bon Iver" in artists_in_pool
+    assert "Iron & Wine" in artists_in_pool
+
+
+@pytest.mark.asyncio
+async def test_pre_parse_extracts_artists_from_descriptive_source():
+    bi = mk_artist("1", "Bon Iver", "Indie Folk")
+    iw = mk_artist("2", "Iron & Wine", "Folk")
+    catalog = FakeCatalog(
+        artists_by_query={
+            "bon iver": [bi],
+            "iron & wine": [iw],
+        },
+        artist_views={
+            "1": CatalogArtistViews(
+                artist=bi,
+                top_songs=[mk_track(f"B{i}", f"BI Song {i}", "Bon Iver") for i in range(6)],
+                similar_artists=[],
+            ),
+            "2": CatalogArtistViews(
+                artist=iw,
+                top_songs=[mk_track(f"I{i}", f"IW Song {i}", "Iron & Wine") for i in range(6)],
+                similar_artists=[],
+            ),
+        },
+    )
+    llm = FakeLLM([
+        '{"artists":["Bon Iver","Iron & Wine"],"albums":[],"tracks":[],'
+        '"style":"chill indie folk","constraints":"nothing too upbeat"}',
+    ])
+    builder = SeedPoolBuilder(catalog, llm)
+    pool = await builder.build(
+        "chill indie folk like Bon Iver and Iron & Wine, nothing too upbeat",
+        target_count=8,
+    )
+    assert pool.source == "multi_artist_seed"
+    assert pool.style_hint == "chill indie folk"
+    assert pool.constraints == "nothing too upbeat"
+    artists_in_pool = {t.artist for t in pool.tracks}
+    assert "Bon Iver" in artists_in_pool
+    assert "Iron & Wine" in artists_in_pool
+
+
+@pytest.mark.asyncio
+async def test_explicit_tracks_added_to_pool():
+    seed = mk_artist("1", "Seed", "Rock")
+    explicit_track = mk_track("EX1", "Skinny Love", "Bon Iver")
+    catalog = FakeCatalog(
+        artists_by_query={"seed": [seed]},
+        artist_views={"1": CatalogArtistViews(
+            artist=seed,
+            top_songs=[mk_track("S1", "Seed Song", "Seed")],
+            similar_artists=[],
+        )},
+        songs_by_query={"skinny love": [explicit_track]},
+    )
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+    pool = await builder.build(
+        "Seed", target_count=5,
+        source_tracks=["Skinny Love"],
+    )
+    ids = [t.apple_music_id for t in pool.tracks]
+    assert "EX1" in ids
+
+
+@pytest.mark.asyncio
 async def test_enrich_merges_am_and_mb_tags():
     seed = mk_artist("1", "Palace", "Alternative", "Rock")
     catalog = FakeCatalog(

@@ -56,6 +56,11 @@ class Station(Base):
     # Music source — flexible: could be genre, playlist ID, artist list, etc.
     music_source: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
+    # Explicit source lists (names only — resolved at generation time)
+    source_artists: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    source_albums: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    source_tracks: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
     album_art: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

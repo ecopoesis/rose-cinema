@@ -42,6 +42,9 @@ def _station_to_record(s: Station) -> StationRecord:
         max_playlists=s.max_playlists,
         dj_id=s.dj_id,
         music_source=s.music_source,
+        source_artists=s.source_artists,
+        source_albums=s.source_albums,
+        source_tracks=s.source_tracks,
         album_art=s.album_art or "",
     )
 
@@ -136,6 +139,9 @@ class SqlStationRepository(StationRepository):
             max_playlists=record.max_playlists,
             dj_id=record.dj_id,
             music_source=record.music_source,
+            source_artists=record.source_artists,
+            source_albums=record.source_albums,
+            source_tracks=record.source_tracks,
             album_art=record.album_art or None,
         )
         self._session.add(obj)
@@ -156,6 +162,9 @@ class SqlStationRepository(StationRepository):
         obj.max_playlists = record.max_playlists
         obj.dj_id = record.dj_id
         obj.music_source = record.music_source
+        obj.source_artists = record.source_artists
+        obj.source_albums = record.source_albums
+        obj.source_tracks = record.source_tracks
         obj.album_art = record.album_art or None
         await self._session.commit()
         await self._session.refresh(obj)

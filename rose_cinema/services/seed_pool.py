@@ -19,7 +19,16 @@ from rose_cinema.services.catalog import (
 logger = logging.getLogger(__name__)
 
 
-SeedSource = Literal["artist_seed", "track_seed", "theme_seed", "none"]
+SeedSource = Literal["artist_seed", "multi_artist_seed", "track_seed", "theme_seed", "none"]
+
+
+@dataclass
+class ParsedSource:
+    artists: list[str] = field(default_factory=list)
+    albums: list[str] = field(default_factory=list)
+    tracks: list[str] = field(default_factory=list)
+    style: str = ""
+    constraints: str = ""
 
 
 @dataclass
@@ -30,6 +39,8 @@ class SeedPool:
     artists: list[CatalogArtist]
     source: SeedSource
     artist_tags: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    style_hint: str = ""
+    constraints: str = ""
 
 
 _DEFAULT_PER_ARTIST_POOL_CAP = 4
@@ -63,9 +74,55 @@ class SeedPoolBuilder:
         self._llm = llm
         self._mb = mb_client
 
-    async def build(self, music_source: str, target_count: int) -> SeedPool:
+    async def build(
+        self,
+        music_source: str,
+        target_count: int,
+        *,
+        source_artists: list[str] | None = None,
+        source_albums: list[str] | None = None,
+        source_tracks: list[str] | None = None,
+    ) -> SeedPool:
         seed_label = music_source.strip()
-        pool = await self._build_uncached(seed_label, target_count)
+
+        all_artists = list(source_artists or [])
+        all_albums = list(source_albums or [])
+        all_tracks = list(source_tracks or [])
+
+        parsed = await self._maybe_pre_parse(seed_label, all_artists)
+        if parsed:
+            all_artists.extend(parsed.artists)
+            all_albums.extend(parsed.albums)
+            all_tracks.extend(parsed.tracks)
+
+        all_artists = _dedup_names(all_artists)
+        all_albums = _dedup_names(all_albums)
+        all_tracks = _dedup_names(all_tracks)
+
+        style_hint = parsed.style if parsed else ""
+        constraints = parsed.constraints if parsed else ""
+
+        if len(all_artists) > 1:
+            pool = await self._build_multi_artist_pool(
+                seed_label, all_artists, target_count,
+            )
+        elif len(all_artists) == 1:
+            seed_artist = await self._resolve_artist(all_artists[0])
+            if seed_artist:
+                pool = await self._build_artist_pool(seed_label, seed_artist, target_count)
+            else:
+                pool = await self._build_uncached(seed_label, target_count)
+        else:
+            pool = await self._build_uncached(seed_label, target_count)
+
+        if all_tracks:
+            await self._add_explicit_tracks(pool, all_tracks)
+        if all_albums:
+            await self._add_album_tracks(pool, all_albums)
+
+        pool.style_hint = style_hint
+        pool.constraints = constraints
+
         await self._enrich_with_tags(pool)
         logger.info(
             "seed_pool built: seed=%r source=%s tracks=%d unique_artists=%d tags=%d",
@@ -75,17 +132,14 @@ class SeedPoolBuilder:
         return pool
 
     async def _build_uncached(self, seed_label: str, target_count: int) -> SeedPool:
-        # Path A: try as artist
         seed_artist = await self._resolve_artist(seed_label)
 
-        # Path B: try as track → artist
         if seed_artist is None:
             seed_artist = await self._resolve_via_track(seed_label)
 
         if seed_artist is not None:
             return await self._build_artist_pool(seed_label, seed_artist, target_count)
 
-        # Path C: theme → genre charts
         themed = await self._build_theme_pool(seed_label, target_count)
         if themed.tracks:
             return themed
@@ -224,6 +278,177 @@ class SeedPoolBuilder:
             artists_seen.setdefault(v.artist.apple_music_id, v.artist)
             for t in v.top_songs[:_DEFAULT_PER_ARTIST_POOL_CAP]:
                 by_artist[v.artist.apple_music_id].append(t)
+
+    # ── Pre-parse: extract structured intent from descriptive prompts ──
+
+    async def _maybe_pre_parse(
+        self, seed_label: str, existing_artists: list[str],
+    ) -> ParsedSource | None:
+        words = seed_label.split()
+        if len(words) <= 3 and not existing_artists:
+            return None
+        return await self._pre_parse_source(seed_label)
+
+    async def _pre_parse_source(self, music_source: str) -> ParsedSource:
+        system = (
+            "You extract structured music information from a radio station description.\n"
+            "Output ONLY this JSON:\n"
+            '{"artists":["..."],"albums":["..."],"tracks":["..."],'
+            '"style":"...","constraints":"..."}\n'
+            "Rules:\n"
+            "- artists: specific artist/band names mentioned or strongly implied\n"
+            "- albums: specific album names mentioned\n"
+            "- tracks: specific song titles mentioned\n"
+            "- style: short genre/mood/era phrase (e.g. 'chill indie folk')\n"
+            "- constraints: things to avoid (e.g. 'nothing too upbeat')\n"
+            "- Use empty list/string if nothing fits. Only extract what's clearly there.\n"
+            "No commentary."
+        )
+        user = f"Station description: {music_source}"
+        try:
+            raw = await self._llm.complete(
+                messages=[LLMMessage("system", system), LLMMessage("user", user)],
+                temperature=0.3, max_tokens=300,
+            )
+            obj = json.loads(_extract_json_object(raw))
+        except Exception:
+            logger.warning("Pre-parse failed for %r", music_source[:100])
+            return ParsedSource()
+
+        return ParsedSource(
+            artists=[n for n in (obj.get("artists") or []) if isinstance(n, str) and n.strip()],
+            albums=[n for n in (obj.get("albums") or []) if isinstance(n, str) and n.strip()],
+            tracks=[n for n in (obj.get("tracks") or []) if isinstance(n, str) and n.strip()],
+            style=str(obj.get("style") or "").strip(),
+            constraints=str(obj.get("constraints") or "").strip(),
+        )
+
+    # ── Multi-artist pool ─────────────────────────────────────────────
+
+    _MULTI_TOP_SONGS = 8
+    _MULTI_SIMILAR = 4
+    _MULTI_SIMILAR_SONGS = 4
+
+    async def _build_multi_artist_pool(
+        self, seed_label: str, artist_names: list[str], target_count: int,
+    ) -> SeedPool:
+        resolved: list[CatalogArtist] = []
+        for name in artist_names:
+            a = await self._resolve_artist(name)
+            if a:
+                resolved.append(a)
+            else:
+                logger.info("multi-artist: could not resolve %r", name)
+
+        if not resolved:
+            return SeedPool(
+                seed_label=seed_label, seed_artist=None,
+                tracks=[], artists=[], source="none",
+            )
+
+        if len(resolved) == 1:
+            return await self._build_artist_pool(seed_label, resolved[0], target_count)
+
+        sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
+        by_artist: dict[str, list[CatalogTrack]] = defaultdict(list)
+        artists_seen: dict[str, CatalogArtist] = {}
+
+        async def fetch_seed(a: CatalogArtist):
+            async with sem:
+                return await self._catalog.get_artist_views(
+                    a.apple_music_id,
+                    top_songs=self._MULTI_TOP_SONGS,
+                    similar_artists=self._MULTI_SIMILAR,
+                )
+
+        seed_views = await asyncio.gather(
+            *(fetch_seed(a) for a in resolved), return_exceptions=True,
+        )
+
+        similar_to_fetch: list[CatalogArtist] = []
+        for v in seed_views:
+            if isinstance(v, BaseException):
+                continue
+            artists_seen[v.artist.apple_music_id] = v.artist
+            songs = list(v.top_songs)
+            if len(songs) > self._MULTI_TOP_SONGS:
+                songs = random.sample(songs, self._MULTI_TOP_SONGS)
+            for t in songs:
+                by_artist[v.artist.apple_music_id].append(t)
+            for sa in v.similar_artists[:self._MULTI_SIMILAR]:
+                if sa.apple_music_id not in artists_seen:
+                    similar_to_fetch.append(sa)
+
+        async def fetch_similar(a: CatalogArtist):
+            async with sem:
+                return await self._catalog.get_artist_views(
+                    a.apple_music_id,
+                    top_songs=self._MULTI_SIMILAR_SONGS,
+                    similar_artists=0,
+                )
+
+        if similar_to_fetch:
+            sim_views = await asyncio.gather(
+                *(fetch_similar(a) for a in similar_to_fetch[:16]),
+                return_exceptions=True,
+            )
+            for v in sim_views:
+                if isinstance(v, BaseException) or not v.artist.apple_music_id:
+                    continue
+                artists_seen.setdefault(v.artist.apple_music_id, v.artist)
+                songs = list(v.top_songs)
+                if len(songs) > self._MULTI_SIMILAR_SONGS:
+                    songs = random.sample(songs, self._MULTI_SIMILAR_SONGS)
+                for t in songs:
+                    by_artist[v.artist.apple_music_id].append(t)
+
+        logger.info(
+            "multi-artist pool: %d seed artists resolved, %d total artists, %d tracks",
+            len(resolved), len(artists_seen),
+            sum(len(ts) for ts in by_artist.values()),
+        )
+
+        return self._assemble_pool(
+            seed_label=seed_label,
+            seed_artist=resolved[0] if len(resolved) == 1 else None,
+            by_artist=by_artist,
+            artists_seen=artists_seen,
+            source="multi_artist_seed",
+        )
+
+    # ── Explicit track / album injection ──────────────────────────────
+
+    async def _add_explicit_tracks(
+        self, pool: SeedPool, track_names: list[str],
+    ) -> None:
+        seen = {t.apple_music_id for t in pool.tracks if t.apple_music_id}
+        for name in track_names:
+            try:
+                results = await self._catalog.search(name, limit=3)
+            except Exception:
+                logger.warning("Catalog search failed for explicit track %r", name)
+                continue
+            if results:
+                t = results[0]
+                if t.apple_music_id and t.apple_music_id not in seen:
+                    pool.tracks.insert(0, t)
+                    seen.add(t.apple_music_id)
+
+    async def _add_album_tracks(
+        self, pool: SeedPool, album_names: list[str],
+    ) -> None:
+        seen = {t.apple_music_id for t in pool.tracks if t.apple_music_id}
+        for name in album_names:
+            try:
+                results = await self._catalog.search(name, limit=10)
+            except Exception:
+                logger.warning("Catalog search failed for album %r", name)
+                continue
+            for t in results:
+                if t.apple_music_id and t.apple_music_id not in seen:
+                    if name.lower() in t.album.lower() or t.album.lower() in name.lower():
+                        pool.tracks.append(t)
+                        seen.add(t.apple_music_id)
 
     # ── Tag enrichment ──────────────────────────────────────────────────
 
@@ -372,6 +597,17 @@ class SeedPoolBuilder:
             artists=artists,
             source=source,
         )
+
+
+def _dedup_names(names: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in names:
+        key = n.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(n.strip())
+    return out
 
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)

@@ -63,11 +63,19 @@ class TrackPicker:
         target_minutes: int,
         avg_song_secs: int = 220,
         exclude_ids: set[str] | None = None,
+        source_artists: list[str] | None = None,
+        source_albums: list[str] | None = None,
+        source_tracks: list[str] | None = None,
     ) -> list[SongMetadata]:
         target_count = max(3, round((target_minutes * 60) / avg_song_secs))
 
         if self._seed_builder is not None:
-            pool = await self._seed_builder.build(music_source, target_count)
+            pool = await self._seed_builder.build(
+                music_source, target_count,
+                source_artists=source_artists,
+                source_albums=source_albums,
+                source_tracks=source_tracks,
+            )
             if pool.tracks:
                 if exclude_ids:
                     before = len(pool.tracks)
@@ -101,6 +109,14 @@ class TrackPicker:
             f" The seed artist is {pool.seed_artist.name}; cap at 2 picks from them."
             if pool.seed_artist else ""
         )
+        style_rule = (
+            f"- Style target: {pool.style_hint}. Prioritize tracks that match this feel.\n"
+            if pool.style_hint else ""
+        )
+        constraint_rule = (
+            f"- Constraint: {pool.constraints}.\n"
+            if pool.constraints else ""
+        )
 
         system = (
             f"You curate a {target_count}-track radio set from a fixed numbered pool.\n"
@@ -110,6 +126,8 @@ class TrackPicker:
             "- Same artist no more than twice across the picks.\n"
             f"-{seed_hint}\n"
             "- Tags in {{}} show genre/style. Prefer tracks whose tags align with the seed's musical identity.\n"
+            f"{style_rule}"
+            f"{constraint_rule}"
             "- Span eras: when the pool offers a year range, prefer mixing.\n"
             "- Order for arc: opener with energy, mid section deeper cuts, closer that resolves.\n"
             "No commentary, no extra keys."
