@@ -101,6 +101,13 @@ class PlaylistEntryResponse(BaseModel):
     duration_secs: float = 0.0
 
 
+class ProgressResponse(BaseModel):
+    total: int = 0
+    completed: int = 0
+    failed: int = 0
+    current_step: str | None = None
+
+
 class PlaylistRunResponse(BaseModel):
     id: str
     station_id: str
@@ -109,6 +116,19 @@ class PlaylistRunResponse(BaseModel):
     entries: list[PlaylistEntryResponse] = []
     error_message: str | None = None
     generation_secs: float | None = None
+    progress: ProgressResponse | None = None
+
+
+class EventResponse(BaseModel):
+    id: str
+    step_type: str
+    step_index: int
+    status: str
+    error_message: str | None = None
+    retry_count: int = 0
+    created_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
 
 
 class PlaylistRunSummary(BaseModel):

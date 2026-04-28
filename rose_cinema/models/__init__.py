@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Float, Integer, String, Text, DateTime, ForeignKey, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -88,3 +89,30 @@ class PlaylistRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     station: Mapped[Station] = relationship(back_populates="playlist_runs")
+    events: Mapped[list[GenerationEvent]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class GenerationEvent(Base):
+    __tablename__ = "generation_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("playlist_runs.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    step_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    step_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    run: Mapped[PlaylistRun] = relationship(back_populates="events")

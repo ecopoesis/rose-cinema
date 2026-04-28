@@ -22,6 +22,7 @@ export const exportAll = () => api('/export');
 export const importAll = (data) => api('/import', { method: 'POST', body: data });
 export const generate = (stationId) =>
   api('/generate', { method: 'POST', body: { station_id: stationId } });
+export const fetchRun = (runId) => api(`/runs/${runId}`);
 export const saveToMA = (runId) =>
   api(`/runs/${runId}/save-to-ma`, { method: 'POST', body: {} });
 export const fetchStationRuns = (stationId) =>

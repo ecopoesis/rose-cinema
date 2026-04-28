@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-import time
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
@@ -10,36 +11,45 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rose_cinema.config import settings
-from rose_cinema.database import get_session
+from rose_cinema.database import async_session, get_session
 from rose_cinema.repositories import DJRecord, StationRecord, PlaylistRunRecord
 from rose_cinema.repositories.sql import (
     SqlDJRepository,
     SqlStationRepository,
     SqlPlaylistRunRepository,
 )
-from rose_cinema.providers.factory import get_llm_provider
-from rose_cinema.services.station_builder import StationBuilder, SongMetadata
-from rose_cinema.services.track_picker import TrackPicker
-from rose_cinema.services.musickit import get_music_catalog
-from rose_cinema.services.seed_pool import SeedPoolBuilder
 from rose_cinema.services.music_assistant import get_music_assistant_client
-from pathlib import Path
+from rose_cinema.services.queue import EventQueue, QueueWorker, enqueue_ma_chain
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
     GenerateRequest, PlaylistRunResponse, PlaylistEntryResponse,
-    PlaylistRunSummary,
-    MAPlayRequest, MAPlayResponse, MASaveResponse,
+    PlaylistRunSummary, ProgressResponse, EventResponse,
+    MAPlayRequest, MAPlayResponse,
     DJExport, StationExport, ExportData, ImportResult,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+_worker: QueueWorker | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _worker
+    _worker = QueueWorker(async_session)
+    await _worker.start()
+    yield
+    await _worker.stop()
+    _worker = None
+
+
 app = FastAPI(
     title="Rose Cinema",
     description="AI-powered radio station generator for Apple Music",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -285,72 +295,44 @@ async def generate_playlist(
     if not dj:
         raise HTTPException(404, "Assigned DJ not found")
 
-    # Create a run record
+    if not body.songs and not station.music_source:
+        raise HTTPException(400, "Station has no music_source and no songs were provided")
+
     run = await run_repo.create(PlaylistRunRecord(station_id=station.id, status="generating"))
+    logger.info("[%s] Starting generation for station '%s' (DJ: %s)", station.id[:8], station.name, dj.name)
 
-    t0 = time.monotonic()
-    try:
-        logger.info("[%s] Starting generation for station '%s' (DJ: %s)", station.id[:8], station.name, dj.name)
-        llm = get_llm_provider()
-        builder = StationBuilder(llm, audio_dir=settings.dj_audio_dir)
+    exclude_ids = list(await run_repo.list_recent_track_ids(station.id, max_runs=3))
 
-        if body.songs:
-            songs = [
-                SongMetadata(
-                    title=s.title,
-                    artist=s.artist,
-                    album=s.album,
-                    year=s.year,
-                    apple_music_id=s.apple_music_id,
-                    duration_secs=s.duration_secs,
-                )
-                for s in body.songs
-            ]
-        else:
-            if not station.music_source:
-                raise HTTPException(
-                    400, "Station has no music_source and no songs were provided"
-                )
-            catalog = get_music_catalog()
-            seed_builder = SeedPoolBuilder(catalog, llm) if catalog else None
-            if catalog is None:
-                logger.warning("MusicKit catalog not configured — pool grounding disabled, falling back to LLM-discovery")
-            exclude_ids = await run_repo.list_recent_track_ids(station.id, max_runs=3)
-            logger.info("[%s] Picking tracks for %d minutes from source: %s (excluding %d recent)", station.name, station.length_minutes, station.music_source[:80], len(exclude_ids))
-            songs = await TrackPicker(llm, catalog, seed_builder).pick(
-                music_source=station.music_source,
-                target_minutes=station.length_minutes,
-                exclude_ids=exclude_ids,
-            )
-            logger.info(
-                "TrackPicker selected %d songs for station '%s'",
-                len(songs), station.name,
-            )
+    songs_override = None
+    if body.songs:
+        songs_override = [
+            {
+                "title": s.title, "artist": s.artist, "album": s.album,
+                "year": s.year, "apple_music_id": s.apple_music_id,
+                "duration_secs": s.duration_secs,
+            }
+            for s in body.songs
+        ]
 
-        logger.info("[%s] Building playlist with %d songs…", station.name, len(songs))
-        entries = await builder.build_playlist(station, dj, songs, episode=run.episode)
+    queue = EventQueue(async_session)
+    await queue.enqueue(
+        session, run.id, "pick_tracks", 0,
+        {
+            "station_id": station.id,
+            "music_source": station.music_source,
+            "length_minutes": station.length_minutes,
+            "exclude_ids": exclude_ids,
+            "songs_override": songs_override,
+        },
+    )
+    await session.commit()
 
-        run.status = "ready"
-        elapsed = round(time.monotonic() - t0, 1)
-        run.generation_secs = elapsed
-        logger.info("[%s] Generation complete — %d entries in %.1fs", station.name, len(entries), elapsed)
-        run.playlist_json = json.dumps([e.to_dict() for e in entries])
-        await run_repo.update(run)
-
-        return PlaylistRunResponse(
-            id=run.id,
-            station_id=run.station_id,
-            status=run.status,
-            episode=run.episode,
-            entries=[PlaylistEntryResponse(**e.to_dict()) for e in entries],
-        )
-
-    except Exception as exc:
-        logger.exception("Playlist generation failed")
-        run.status = "failed"
-        run.error_message = str(exc)
-        await run_repo.update(run)
-        raise HTTPException(500, f"Generation failed: {exc}")
+    return PlaylistRunResponse(
+        id=run.id,
+        station_id=run.station_id,
+        status=run.status,
+        episode=run.episode,
+    )
 
 
 @app.get("/api/runs/{run_id}", response_model=PlaylistRunResponse)
@@ -364,6 +346,13 @@ async def get_run(run_id: str, session: AsyncSession = Depends(get_session)):
     if run.playlist_json:
         entries = [PlaylistEntryResponse(**e) for e in json.loads(run.playlist_json)]
 
+    progress = None
+    if run.status == "generating":
+        queue = EventQueue(async_session)
+        prog = await queue.get_progress(session, run_id)
+        if prog:
+            progress = ProgressResponse(**prog)
+
     return PlaylistRunResponse(
         id=run.id,
         station_id=run.station_id,
@@ -371,6 +360,8 @@ async def get_run(run_id: str, session: AsyncSession = Depends(get_session)):
         episode=run.episode,
         entries=entries,
         error_message=run.error_message,
+        generation_secs=run.generation_secs,
+        progress=progress,
     )
 
 
@@ -399,6 +390,38 @@ async def list_station_runs(
             generation_secs=r.generation_secs,
         )
         for r in runs
+    ]
+
+
+@app.get("/api/runs/{run_id}/events", response_model=list[EventResponse])
+async def get_run_events(run_id: str, session: AsyncSession = Depends(get_session)):
+    from rose_cinema.models import GenerationEvent
+    from sqlalchemy import select
+
+    repo = SqlPlaylistRunRepository(session)
+    run = await repo.get(run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+
+    result = await session.execute(
+        select(GenerationEvent)
+        .where(GenerationEvent.run_id == run_id)
+        .order_by(GenerationEvent.created_at)
+    )
+    events = result.scalars().all()
+    return [
+        EventResponse(
+            id=e.id,
+            step_type=e.step_type,
+            step_index=e.step_index,
+            status=e.status,
+            error_message=e.error_message,
+            retry_count=e.retry_count,
+            created_at=str(e.created_at) if e.created_at else None,
+            started_at=str(e.started_at) if e.started_at else None,
+            completed_at=str(e.completed_at) if e.completed_at else None,
+        )
+        for e in events
     ]
 
 
@@ -499,17 +522,21 @@ async def play_run(
     return MAPlayResponse(player_id=player_id, queued=len(uris), uris=uris)
 
 
-@app.post("/api/runs/{run_id}/save-to-ma", response_model=MASaveResponse)
+@app.post("/api/runs/{run_id}/save-to-ma", status_code=202)
 async def save_run_to_ma(
     run_id: str,
     session: AsyncSession = Depends(get_session),
 ):
+    from rose_cinema.models import PlaylistRun
+
     repo = SqlPlaylistRunRepository(session)
     run = await repo.get(run_id)
     if not run:
         raise HTTPException(404, "Run not found")
     if not run.playlist_json:
         raise HTTPException(400, "Run has no playlist yet")
+    if run.ma_playlist_id:
+        return {"status": "already_saved", "playlist_id": run.ma_playlist_id}
 
     client = get_music_assistant_client()
     if client is None:
@@ -517,88 +544,15 @@ async def save_run_to_ma(
     if not settings.public_base_url:
         raise HTTPException(503, "PUBLIC_BASE_URL not configured")
 
-    # Look up the station and DJ for naming and metadata
-    station_repo = SqlStationRepository(session)
-    station = await station_repo.get(run.station_id)
-    station_name = station.name if station else "Unknown station"
-    dj_name = "?"
-    art_url = None
-    if station:
-        if station.dj_id:
-            dj_repo = SqlDJRepository(session)
-            dj = await dj_repo.get(station.dj_id)
-            if dj:
-                dj_name = dj.name
-        if station.album_art and (Path(settings.album_art_dir) / station.album_art).exists():
-            art_url = f"{settings.public_base_url.rstrip('/')}/api/stations/{station.id}/album-art"
+    run_obj = await session.get(PlaylistRun, run_id)
+    if not run_obj:
+        raise HTTPException(404, "Run not found")
 
-    base = settings.public_base_url.rstrip("/")
-    ep = run.episode
-    ordered: list[str] = []
-    dj_metadata: list[dict] = []
-    apple_uris: list[str] = []
-    dj_part = 0
-    for e in json.loads(run.playlist_json):
-        if e.get("type") == "song" and e.get("apple_music_id"):
-            uri = f"apple_music://track/{e['apple_music_id']}"
-            ordered.append(uri); apple_uris.append(uri)
-        elif e.get("type") == "dj" and e.get("audio_file"):
-            fname = Path(e['audio_file']).name
-            url = f"{base}/audio/{fname}"
-            ordered.append(url)
-            if ep:
-                seg_name = f"{station_name} - Episode {ep} - Intro" if dj_part == 0 else f"{station_name} - Episode {ep} - Part {dj_part}"
-            else:
-                seg_name = f"{station_name} - DJ {dj_part}"
-            dj_part += 1
-            meta = {
-                "uri": url,
-                "item_id": url,
-                "provider": "builtin",
-                "media_type": "track",
-                "name": seg_name,
-                "artists": [{
-                    "name": dj_name,
-                    "item_id": dj_name,
-                    "provider": "builtin",
-                    "media_type": "artist",
-                }],
-                "metadata": {}
-            }
-            if art_url:
-                meta["metadata"]["images"] = [{"type": "thumb", "path": art_url, "provider": "builtin", "remotely_accessible": True}]
-            dj_metadata.append(meta)
+    queue = EventQueue(async_session)
+    await enqueue_ma_chain(session, queue, run_obj)
+    await session.commit()
 
-    if not ordered:
-        raise HTTPException(400, "Run has no playable entries")
-
-    from datetime import datetime
-    if ep:
-        name = f"{station_name} Episode {ep} ({datetime.now().strftime('%Y-%m-%d')})"
-    else:
-        name = f"{station_name} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-    out = await client.save_as_playlist(
-        name=name,
-        apple_music_uris=apple_uris,
-        dj_mp3_metadata=dj_metadata,
-        ordered_uris=ordered,
-        art_url=art_url,
-    )
-
-    run.ma_playlist_id = out["playlist_id"]
-    await repo.update(run)
-
-    if station and station.max_playlists > 0:
-        from rose_cinema.services.cleanup import trim_station_runs
-        await trim_station_runs(
-            station_id=run.station_id,
-            max_playlists=station.max_playlists,
-            run_repo=repo,
-            audio_dir=settings.dj_audio_dir,
-            ma_client=client,
-        )
-
-    return MASaveResponse(**out)
+    return {"status": "queued", "run_id": run_id}
 
 
 # ── Export / Import ───────────────────────────────────────────────

@@ -82,15 +82,41 @@
     } catch (e) { showToast(e.message, true); }
   }
 
+  function progressLabel(run) {
+    if (!run.progress) return 'Generating…';
+    const { completed, total, current_step } = run.progress;
+    const step = (current_step || '').replace(/_/g, ' ');
+    if (total > 0) return `${step || 'working'} (${completed}/${total})`;
+    return step || 'Generating…';
+  }
+
   async function handleGenerate(station, btn) {
     const orig = btn.textContent;
     btn.disabled = true;
     try {
-      btn.textContent = 'Generating…';
+      btn.textContent = 'Starting…';
       const run = await api.generate(station.id);
-      btn.textContent = 'Saving to MA…';
-      const saved = await api.saveToMA(run.id);
-      showToast(`Saved "${saved.playlist_name}" (${saved.queued_uris} tracks)`);
+      const runId = run.id;
+
+      while (true) {
+        await new Promise(r => setTimeout(r, 3000));
+        const status = await api.fetchRun(runId);
+
+        if (status.status === 'saved') {
+          const songs = status.entries.filter(e => e.type === 'song').length;
+          showToast(`Episode ${status.episode || '?'} saved — ${songs} tracks`);
+          break;
+        }
+        if (status.status === 'ready') {
+          showToast(`Episode ${status.episode || '?'} ready — no MA configured`);
+          break;
+        }
+        if (status.status === 'failed') {
+          showToast(status.error_message || 'Generation failed', true);
+          break;
+        }
+        btn.textContent = progressLabel(status);
+      }
     } catch (e) { showToast(e.message, true); }
     finally { btn.disabled = false; btn.textContent = orig; }
   }
