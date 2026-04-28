@@ -84,6 +84,7 @@ class MusicAssistantClient:
         apple_music_uris: list[str],
         dj_mp3_metadata: list[dict],
         ordered_uris: list[str],
+        art_url: str | None = None,
     ) -> dict:
         """Create an MA playlist with mixed Apple Music + DJ MP3 entries.
 
@@ -99,10 +100,44 @@ class MusicAssistantClient:
             for item in dj_mp3_metadata:
                 url = item["uri"]
                 r = await _call(ws, mid, "music/library/add_item", item=item)
-                lib_uri = (r.get("result") or {}).get("uri")
+                result = r.get("result") or {}
+                lib_uri = result.get("uri")
                 if not lib_uri:
                     raise RuntimeError(f"MA add_item({url}) returned no URI: {r!r}")
                 url_to_uri[url] = lib_uri
+
+                # The builtin provider ignores metadata.images on add.
+                # Set the album art via a separate update call.
+                if art_url:
+                    track_id = result.get("item_id")
+                    if track_id:
+                        await _call(
+                            ws, mid, "music/tracks/update",
+                            item_id=str(track_id),
+                            update={
+                                "item_id": str(track_id),
+                                "provider": "library",
+                                "media_type": "track",
+                                "name": result.get("name", ""),
+                                "uri": lib_uri,
+                                "provider_mappings": [
+                                    {
+                                        "item_id": url,
+                                        "provider_domain": "builtin",
+                                        "provider_instance": "builtin",
+                                        "available": True,
+                                    }
+                                ],
+                                "metadata": {
+                                    "images": [{
+                                        "type": "thumb",
+                                        "path": art_url,
+                                        "provider": "builtin",
+                                        "remotely_accessible": True,
+                                    }]
+                                },
+                            },
+                        )
 
             final_uris = [url_to_uri.get(u, u) for u in ordered_uris]
 

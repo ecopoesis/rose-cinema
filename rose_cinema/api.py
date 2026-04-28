@@ -545,6 +545,7 @@ async def save_run_to_ma(
         apple_music_uris=apple_uris,
         dj_mp3_metadata=dj_metadata,
         ordered_uris=ordered,
+        art_url=art_url,
     )
 
     run.ma_playlist_id = out["playlist_id"]
