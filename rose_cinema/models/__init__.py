@@ -62,6 +62,7 @@ class Station(Base):
     source_tracks: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     album_art: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    cron_schedule: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

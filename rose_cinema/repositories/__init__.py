@@ -33,6 +33,7 @@ class StationRecord:
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
     album_art: str = ""
+    cron_schedule: str | None = None
 
 
 @dataclass

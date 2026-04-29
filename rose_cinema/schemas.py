@@ -47,6 +47,7 @@ class StationCreate(BaseModel):
     source_artists: list[str] | None = None
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
+    cron_schedule: str | None = None
 
 
 class StationUpdate(BaseModel):
@@ -62,6 +63,7 @@ class StationUpdate(BaseModel):
     source_artists: list[str] | None = None
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
+    cron_schedule: str | None = None
 
 
 class StationResponse(BaseModel):
@@ -78,6 +80,7 @@ class StationResponse(BaseModel):
     source_artists: list[str] | None = None
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
+    cron_schedule: str | None = None
     album_art: str
 
 
@@ -206,6 +209,7 @@ class StationExport(BaseModel):
     source_artists: list[str] | None = None
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
+    cron_schedule: str | None = None
     dj_name: str | None = None
     album_art: str = ""
 

@@ -301,6 +301,7 @@
           {/if}
           <div class="card-meta">
             {#if s.music_source}Source: {s.music_source}<br>{/if}
+            {#if s.cron_schedule}Schedule: {s.cron_schedule}<br>{/if}
             DJ: {dj ? `${dj.name} · ${dj.tts_provider} / ${dj.tts_voice_ref || dj.tts_voice_id}` : '(none)'}<br>
             {s.length_minutes} min · talk {s.dj_talk_rate.toFixed(2)}
             · babble {s.dj_babble_rate.toFixed(2)}

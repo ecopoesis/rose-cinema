@@ -15,6 +15,7 @@
   let source_artists = $state((init.source_artists ?? []).join('\n'));
   let source_albums = $state((init.source_albums ?? []).join('\n'));
   let source_tracks = $state((init.source_tracks ?? []).join('\n'));
+  let cron_schedule = $state(init.cron_schedule ?? '');
   let artFile = $state(null);
   let artPreview = $state(init.album_art ? `/api/stations/${init.id}/album-art` : '');
   let removeArt = $state(false);
@@ -61,6 +62,7 @@
         source_artists: artists.length ? artists : null,
         source_albums: albums.length ? albums : null,
         source_tracks: tracks.length ? tracks : null,
+        cron_schedule: cron_schedule.trim() || null,
         _artFile: artFile,
         _removeArt: removeArt,
       });
@@ -154,6 +156,11 @@
     <div class="field">
       <label for="s-maxpl">Max Playlists (0 = unlimited)</label>
       <input id="s-maxpl" type="number" bind:value={max_playlists} min="0">
+    </div>
+    <div class="field">
+      <label for="s-cron">Auto-Generate Schedule <span class="hint">(cron)</span></label>
+      <input id="s-cron" bind:value={cron_schedule}
+             placeholder="e.g. 0 6 * * * (daily at 6am UTC)">
     </div>
   </div>
   <div class="modal-footer">

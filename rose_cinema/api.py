@@ -20,6 +20,7 @@ from rose_cinema.repositories.sql import (
 )
 from rose_cinema.services.music_assistant import get_music_assistant_client
 from rose_cinema.services.queue import EventQueue, QueueWorker, enqueue_ma_chain
+from rose_cinema.services.scheduler import CronScheduler
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
@@ -34,14 +35,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 _worker: QueueWorker | None = None
+_scheduler: CronScheduler | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _worker
+    global _worker, _scheduler
     _worker = QueueWorker(async_session)
     await _worker.start()
+    _scheduler = CronScheduler(async_session)
+    await _scheduler.start()
     yield
+    await _scheduler.stop()
+    _scheduler = None
     await _worker.stop()
     _worker = None
 
@@ -190,6 +196,7 @@ async def update_station(
         "name", "description", "length_minutes", "dj_talk_rate",
         "dj_babble_rate", "dj_max_length_secs", "max_playlists", "dj_id", "music_source",
         "source_artists", "source_albums", "source_tracks",
+        "cron_schedule",
     ):
         val = getattr(body, field_name)
         if val is not None:
@@ -650,6 +657,8 @@ async def export_all(session: AsyncSession = Depends(get_session)):
                 length_minutes=s.length_minutes, dj_talk_rate=s.dj_talk_rate,
                 dj_babble_rate=s.dj_babble_rate, dj_max_length_secs=s.dj_max_length_secs,
                 max_playlists=s.max_playlists, music_source=s.music_source,
+                source_artists=s.source_artists, source_albums=s.source_albums,
+                source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
                 dj_name=dj_map.get(s.dj_id) if s.dj_id else None,
                 album_art=s.album_art,
             )
@@ -688,6 +697,8 @@ async def import_all(body: ExportData, session: AsyncSession = Depends(get_sessi
             length_minutes=s.length_minutes, dj_talk_rate=s.dj_talk_rate,
             dj_babble_rate=s.dj_babble_rate, dj_max_length_secs=s.dj_max_length_secs,
             max_playlists=s.max_playlists, dj_id=dj_id, music_source=s.music_source,
+            source_artists=s.source_artists, source_albums=s.source_albums,
+            source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
         ))
         stations_created += 1
 
