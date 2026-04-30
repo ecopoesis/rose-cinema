@@ -325,8 +325,6 @@ class SeedPoolBuilder:
 
     # ── Multi-artist pool ─────────────────────────────────────────────
 
-    _MULTI_TOP_SONGS = 8
-    _MULTI_SIMILAR = 4
     _MULTI_SIMILAR_SONGS = 4
 
     async def _build_multi_artist_pool(
@@ -349,6 +347,20 @@ class SeedPoolBuilder:
         if len(resolved) == 1:
             return await self._build_artist_pool(seed_label, resolved[0], target_count)
 
+        # Scale per-artist songs and similar-artist fanout based on seed count.
+        # Many seeds = enough variety from the seeds themselves; fanout just
+        # introduces genre drift via Apple Music's taste-based "similar" graph.
+        n_seeds = len(resolved)
+        if n_seeds >= 10:
+            top_per_seed = 6
+            similar_per_seed = 0
+        elif n_seeds >= 5:
+            top_per_seed = 8
+            similar_per_seed = 1
+        else:
+            top_per_seed = 8
+            similar_per_seed = 4
+
         sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
         by_artist: dict[str, list[CatalogTrack]] = defaultdict(list)
         artists_seen: dict[str, CatalogArtist] = {}
@@ -357,8 +369,8 @@ class SeedPoolBuilder:
             async with sem:
                 return await self._catalog.get_artist_views(
                     a.apple_music_id,
-                    top_songs=self._MULTI_TOP_SONGS,
-                    similar_artists=self._MULTI_SIMILAR,
+                    top_songs=top_per_seed,
+                    similar_artists=similar_per_seed,
                 )
 
         seed_views = await asyncio.gather(
@@ -371,23 +383,24 @@ class SeedPoolBuilder:
                 continue
             artists_seen[v.artist.apple_music_id] = v.artist
             songs = list(v.top_songs)
-            if len(songs) > self._MULTI_TOP_SONGS:
-                songs = random.sample(songs, self._MULTI_TOP_SONGS)
+            if len(songs) > top_per_seed:
+                songs = random.sample(songs, top_per_seed)
             for t in songs:
                 by_artist[v.artist.apple_music_id].append(t)
-            for sa in v.similar_artists[:self._MULTI_SIMILAR]:
-                if sa.apple_music_id not in artists_seen:
-                    similar_to_fetch.append(sa)
-
-        async def fetch_similar(a: CatalogArtist):
-            async with sem:
-                return await self._catalog.get_artist_views(
-                    a.apple_music_id,
-                    top_songs=self._MULTI_SIMILAR_SONGS,
-                    similar_artists=0,
-                )
+            if similar_per_seed > 0:
+                for sa in v.similar_artists[:similar_per_seed]:
+                    if sa.apple_music_id not in artists_seen:
+                        similar_to_fetch.append(sa)
 
         if similar_to_fetch:
+            async def fetch_similar(a: CatalogArtist):
+                async with sem:
+                    return await self._catalog.get_artist_views(
+                        a.apple_music_id,
+                        top_songs=self._MULTI_SIMILAR_SONGS,
+                        similar_artists=0,
+                    )
+
             sim_views = await asyncio.gather(
                 *(fetch_similar(a) for a in similar_to_fetch[:16]),
                 return_exceptions=True,
@@ -403,9 +416,9 @@ class SeedPoolBuilder:
                     by_artist[v.artist.apple_music_id].append(t)
 
         logger.info(
-            "multi-artist pool: %d seed artists resolved, %d total artists, %d tracks",
+            "multi-artist pool: %d seeds resolved, %d total artists, %d tracks (similar_per_seed=%d)",
             len(resolved), len(artists_seen),
-            sum(len(ts) for ts in by_artist.values()),
+            sum(len(ts) for ts in by_artist.values()), similar_per_seed,
         )
 
         return self._assemble_pool(
