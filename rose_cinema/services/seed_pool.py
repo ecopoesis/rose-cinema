@@ -347,19 +347,9 @@ class SeedPoolBuilder:
         if len(resolved) == 1:
             return await self._build_artist_pool(seed_label, resolved[0], target_count)
 
-        # Scale per-artist songs and similar-artist fanout based on seed count.
-        # Many seeds = enough variety from the seeds themselves; fanout just
-        # introduces genre drift via Apple Music's taste-based "similar" graph.
         n_seeds = len(resolved)
-        if n_seeds >= 10:
-            top_per_seed = 6
-            similar_per_seed = 0
-        elif n_seeds >= 5:
-            top_per_seed = 8
-            similar_per_seed = 1
-        else:
-            top_per_seed = 8
-            similar_per_seed = 4
+        top_per_seed = 6 if n_seeds >= 10 else 8
+        similar_per_seed = min(4, max(0, 6 - n_seeds // 2))
 
         sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
         by_artist: dict[str, list[CatalogTrack]] = defaultdict(list)
@@ -377,6 +367,20 @@ class SeedPoolBuilder:
             *(fetch_seed(a) for a in resolved), return_exceptions=True,
         )
 
+        # Build dominant genre set from seed artists for filtering similar artists.
+        from collections import Counter
+        genre_counts: Counter[str] = Counter()
+        seed_count = 0
+        for v in seed_views:
+            if isinstance(v, BaseException):
+                continue
+            seed_count += 1
+            for g in (v.artist.genres or ()):
+                genre_counts[g.lower()] += 1
+        # Genres appearing in >= 15% of seeds are "dominant".
+        threshold = max(1, seed_count * 0.15)
+        dominant_genres = {g for g, c in genre_counts.items() if c >= threshold}
+
         similar_to_fetch: list[CatalogArtist] = []
         for v in seed_views:
             if isinstance(v, BaseException):
@@ -389,8 +393,17 @@ class SeedPoolBuilder:
                 by_artist[v.artist.apple_music_id].append(t)
             if similar_per_seed > 0:
                 for sa in v.similar_artists[:similar_per_seed]:
-                    if sa.apple_music_id not in artists_seen:
-                        similar_to_fetch.append(sa)
+                    if sa.apple_music_id in artists_seen:
+                        continue
+                    if dominant_genres and sa.genres:
+                        sa_genres = {g.lower() for g in sa.genres}
+                        if not sa_genres & dominant_genres:
+                            logger.debug(
+                                "multi-artist: filtered %s (genres %s outside %s)",
+                                sa.name, sa.genres, dominant_genres,
+                            )
+                            continue
+                    similar_to_fetch.append(sa)
 
         if similar_to_fetch:
             async def fetch_similar(a: CatalogArtist):
@@ -416,9 +429,14 @@ class SeedPoolBuilder:
                     by_artist[v.artist.apple_music_id].append(t)
 
         logger.info(
-            "multi-artist pool: %d seeds resolved, %d total artists, %d tracks (similar_per_seed=%d)",
+            "multi-artist pool: %d seeds, %d total artists, %d tracks "
+            "(similar_per_seed=%d, dominant_genres=%s, filtered_similar=%d)",
             len(resolved), len(artists_seen),
             sum(len(ts) for ts in by_artist.values()), similar_per_seed,
+            dominant_genres,
+            len(similar_to_fetch) - sum(
+                1 for a in similar_to_fetch if a.apple_music_id in artists_seen
+            ),
         )
 
         return self._assemble_pool(
