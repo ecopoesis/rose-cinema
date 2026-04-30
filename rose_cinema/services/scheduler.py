@@ -119,6 +119,7 @@ class CronScheduler:
                     "source_artists": station.source_artists,
                     "source_albums": station.source_albums,
                     "source_tracks": station.source_tracks,
+                    "discovery_rate": station.discovery_rate,
                 },
             )
             await session.commit()

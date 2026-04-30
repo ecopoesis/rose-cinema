@@ -34,6 +34,7 @@ class StationRecord:
     source_tracks: list[str] | None = None
     album_art: str = ""
     cron_schedule: str | None = None
+    discovery_rate: float = 0.5
 
 
 @dataclass

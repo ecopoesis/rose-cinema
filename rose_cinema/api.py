@@ -196,7 +196,7 @@ async def update_station(
         "name", "description", "length_minutes", "dj_talk_rate",
         "dj_babble_rate", "dj_max_length_secs", "max_playlists", "dj_id", "music_source",
         "source_artists", "source_albums", "source_tracks",
-        "cron_schedule",
+        "cron_schedule", "discovery_rate",
     ):
         val = getattr(body, field_name)
         if val is not None:
@@ -335,6 +335,7 @@ async def generate_playlist(
             "source_artists": station.source_artists,
             "source_albums": station.source_albums,
             "source_tracks": station.source_tracks,
+            "discovery_rate": station.discovery_rate,
         },
     )
     await session.commit()
@@ -490,6 +491,7 @@ async def test_playlist(
         source_artists=station.source_artists,
         source_albums=station.source_albums,
         source_tracks=station.source_tracks,
+        discovery_rate=station.discovery_rate,
     )
     elapsed = _time.monotonic() - t0
 
@@ -659,6 +661,7 @@ async def export_all(session: AsyncSession = Depends(get_session)):
                 max_playlists=s.max_playlists, music_source=s.music_source,
                 source_artists=s.source_artists, source_albums=s.source_albums,
                 source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
+                discovery_rate=s.discovery_rate,
                 dj_name=dj_map.get(s.dj_id) if s.dj_id else None,
                 album_art=s.album_art,
             )
@@ -699,6 +702,7 @@ async def import_all(body: ExportData, session: AsyncSession = Depends(get_sessi
             max_playlists=s.max_playlists, dj_id=dj_id, music_source=s.music_source,
             source_artists=s.source_artists, source_albums=s.source_albums,
             source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
+            discovery_rate=s.discovery_rate,
         ))
         stations_created += 1
 

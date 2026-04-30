@@ -82,6 +82,7 @@ class SeedPoolBuilder:
         source_artists: list[str] | None = None,
         source_albums: list[str] | None = None,
         source_tracks: list[str] | None = None,
+        discovery_rate: float = 0.5,
     ) -> SeedPool:
         seed_label = music_source.strip()
 
@@ -104,12 +105,14 @@ class SeedPoolBuilder:
 
         if len(all_artists) > 1:
             pool = await self._build_multi_artist_pool(
-                seed_label, all_artists, target_count,
+                seed_label, all_artists, target_count, discovery_rate,
             )
         elif len(all_artists) == 1:
             seed_artist = await self._resolve_artist(all_artists[0])
             if seed_artist:
-                pool = await self._build_artist_pool(seed_label, seed_artist, target_count)
+                pool = await self._build_artist_pool(
+                    seed_label, seed_artist, target_count, discovery_rate,
+                )
             else:
                 pool = await self._build_uncached(seed_label, target_count)
         else:
@@ -174,11 +177,13 @@ class SeedPoolBuilder:
 
     async def _build_artist_pool(
         self, seed_label: str, seed_artist: CatalogArtist, target_count: int,
+        discovery_rate: float = 0.5,
     ) -> SeedPool:
+        similar_count = max(1, round(_SIMILAR_ARTIST_FANOUT * discovery_rate))
         seed_views = await self._catalog.get_artist_views(
             seed_artist.apple_music_id,
             top_songs=_SEED_ARTIST_TOP_SONGS,
-            similar_artists=_SIMILAR_ARTIST_FANOUT,
+            similar_artists=similar_count,
         )
 
         sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
@@ -329,6 +334,7 @@ class SeedPoolBuilder:
 
     async def _build_multi_artist_pool(
         self, seed_label: str, artist_names: list[str], target_count: int,
+        discovery_rate: float = 0.5,
     ) -> SeedPool:
         resolved: list[CatalogArtist] = []
         for name in artist_names:
@@ -349,7 +355,7 @@ class SeedPoolBuilder:
 
         n_seeds = len(resolved)
         top_per_seed = 6 if n_seeds >= 10 else 8
-        similar_per_seed = min(4, max(0, 6 - n_seeds // 2))
+        similar_per_seed = round(4 * discovery_rate)
 
         sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
         by_artist: dict[str, list[CatalogTrack]] = defaultdict(list)

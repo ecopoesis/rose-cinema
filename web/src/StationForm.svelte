@@ -12,6 +12,7 @@
   let dj_babble_rate = $state(init.dj_babble_rate ?? 0.5);
   let dj_max_length_secs = $state(init.dj_max_length_secs ?? 30);
   let max_playlists = $state(init.max_playlists ?? 0);
+  let discovery_rate = $state(init.discovery_rate ?? 0.5);
   let source_artists = $state((init.source_artists ?? []).join('\n'));
   let source_albums = $state((init.source_albums ?? []).join('\n'));
   let source_tracks = $state((init.source_tracks ?? []).join('\n'));
@@ -59,6 +60,7 @@
         dj_babble_rate: Number(dj_babble_rate),
         dj_max_length_secs: Number(dj_max_length_secs),
         max_playlists: Number(max_playlists),
+        discovery_rate: Number(discovery_rate),
         source_artists: artists.length ? artists : null,
         source_albums: albums.length ? albums : null,
         source_tracks: tracks.length ? tracks : null,
@@ -147,6 +149,13 @@
       <div class="range-row">
         <input id="s-babble" type="range" bind:value={dj_babble_rate} min="0" max="1" step="0.05">
         <span class="range-val">{Number(dj_babble_rate).toFixed(2)}</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="s-discovery">Discovery</label>
+      <div class="range-row">
+        <input id="s-discovery" type="range" bind:value={discovery_rate} min="0" max="1" step="0.05">
+        <span class="range-val">{Number(discovery_rate).toFixed(2)}</span>
       </div>
     </div>
     <div class="field">

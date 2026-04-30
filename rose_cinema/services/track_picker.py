@@ -66,6 +66,7 @@ class TrackPicker:
         source_artists: list[str] | None = None,
         source_albums: list[str] | None = None,
         source_tracks: list[str] | None = None,
+        discovery_rate: float = 0.5,
     ) -> list[SongMetadata]:
         target_count = max(3, round((target_minutes * 60) / avg_song_secs))
 
@@ -75,6 +76,7 @@ class TrackPicker:
                 source_artists=source_artists,
                 source_albums=source_albums,
                 source_tracks=source_tracks,
+                discovery_rate=discovery_rate,
             )
             if pool.tracks:
                 if exclude_ids:
