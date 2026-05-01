@@ -2,11 +2,25 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 
 from rose_cinema.providers import LLMMessage, LLMProvider
 from rose_cinema.repositories import DJRecord
 
 logger = logging.getLogger(__name__)
+
+_STAGE_DIRECTION_RE = re.compile(
+    r"\[.*?\]"            # [chuckle], [laughs], [soft music]
+    r"|\(.*?\)"           # (chuckle), (pauses), (soft laugh)
+    r"|\*.*?\*",          # *chuckles*, *sighs*
+    re.DOTALL,
+)
+
+
+def _strip_stage_directions(text: str) -> str:
+    cleaned = _STAGE_DIRECTION_RE.sub("", text)
+    cleaned = re.sub(r"  +", " ", cleaned)
+    return cleaned.strip()
 
 
 def _estimate_word_count(max_seconds: float, babble_rate: float) -> int:
@@ -47,6 +61,9 @@ def build_system_prompt(dj: DJRecord, babble_rate: float, max_seconds: int) -> s
             "[groan], [shush]. Place them inline where the emotion fits — e.g. "
             "\"That was incredible [laugh] I never get tired of that one.\" "
             "Use them sparingly (1–3 per segment) so they feel genuine, not forced.\n"
+            "IMPORTANT: ONLY use the exact tags listed above in square brackets. "
+            "Never write out expressions as words (e.g. never write 'soft chuckle' "
+            "or 'he laughs' — use [chuckle] or [laugh] instead).\n"
         )
 
     if babble_rate < 0.2:
