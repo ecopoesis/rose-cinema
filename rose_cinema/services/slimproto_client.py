@@ -165,17 +165,46 @@ class SlimProtoClient:
     async def _fetch_audio(self, url: str) -> None:
         await self._send_stat(b"STMc")
         try:
+            decoder = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-f", "flac", "-i", "pipe:0",
+                "-f", "s32le", "-ar", "48000", "-ac", "2", "pipe:1",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            async def _read_pcm():
+                assert decoder.stdout
+                while True:
+                    pcm = await decoder.stdout.read(65536)
+                    if not pcm:
+                        break
+                    await self._audio_queue.put(pcm)
+
+            read_task = asyncio.create_task(_read_pcm())
+
             async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=300, write=10, pool=10)) as client:
                 async with client.stream("GET", url) as resp:
                     if resp.status_code != 200:
                         logger.error("Audio fetch failed: %d from %s", resp.status_code, url)
+                        if decoder.stdin:
+                            decoder.stdin.close()
+                        await read_task
                         return
                     await self._send_stat(b"STMs")
                     async for chunk in resp.aiter_bytes(65536):
                         self._jiffies += len(chunk)
-                        await self._audio_queue.put(chunk)
-                    await self._send_stat(b"STMd")
+                        if decoder.stdin and not decoder.stdin.is_closing():
+                            decoder.stdin.write(chunk)
+                            await decoder.stdin.drain()
+            if decoder.stdin and not decoder.stdin.is_closing():
+                decoder.stdin.close()
+            await read_task
+            await self._send_stat(b"STMd")
         except asyncio.CancelledError:
+            if decoder and decoder.returncode is None:
+                decoder.kill()
             raise
         except Exception:
             logger.exception("Audio fetch error from %s", url)

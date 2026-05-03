@@ -102,8 +102,7 @@ class StreamManager:
         )
         ff_proc = await asyncio.create_subprocess_exec(
             "ffmpeg", "-hide_banner", "-loglevel", "info",
-            "-probesize", "32768", "-analyzeduration", "0",
-            "-f", "flac", "-i", "pipe:0",
+            "-f", "s32le", "-ar", "48000", "-ac", "2", "-i", "pipe:0",
             "-c:a", "libmp3lame", "-b:a", "192k",
             "-f", "mp3", icecast_url,
             stdin=asyncio.subprocess.PIPE,
