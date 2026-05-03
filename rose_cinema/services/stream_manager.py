@@ -101,7 +101,7 @@ class StreamManager:
             f"@{settings.icecast_host}:{settings.icecast_port}{mount}"
         )
         ff_proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-hide_banner", "-loglevel", "info",
+            "ffmpeg", "-hide_banner", "-loglevel", "warning",
             "-f", "s32le", "-ar", "48000", "-ac", "2", "-i", "pipe:0",
             "-c:a", "libmp3lame", "-b:a", "192k",
             "-f", "mp3", icecast_url,
@@ -256,7 +256,7 @@ class StreamManager:
         async for line in proc.stderr:
             text = line.decode(errors="replace").rstrip()
             if text:
-                logger.info("[%s] %s", label, text)
+                logger.debug("[%s] %s", label, text)
 
     async def _kill_stream(self, info: StreamInfo) -> None:
         if info.slim_client:
