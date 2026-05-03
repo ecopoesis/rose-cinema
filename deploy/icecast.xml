@@ -26,10 +26,13 @@
         <bind-address>127.0.0.1</bind-address>
     </listen-socket>
 
-    <changeowner>
-        <user>nobody</user>
-        <group>nogroup</group>
-    </changeowner>
+    <security>
+        <chroot>0</chroot>
+        <changeowner>
+            <user>nobody</user>
+            <group>nogroup</group>
+        </changeowner>
+    </security>
 
     <fileserve>0</fileserve>
 
