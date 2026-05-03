@@ -70,7 +70,7 @@ class SlimProtoClient:
     async def _send_frame(self, command: bytes, data: bytes) -> None:
         if not self._writer or self._writer.is_closing():
             return
-        packet = struct.pack("!H", len(data) + 4) + command + data
+        packet = command + struct.pack("!I", len(data)) + data
         self._writer.write(packet)
         await self._writer.drain()
 
