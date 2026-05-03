@@ -740,7 +740,7 @@ async def listen_stream(
 
     run_repo = SqlPlaylistRunRepository(session)
     runs = await run_repo.list_by_station(station.id)
-    ready_runs = [r for r in runs if r.status == "ready"]
+    ready_runs = [r for r in runs if r.status in ("ready", "saved")]
     if not ready_runs:
         raise HTTPException(404, "No playlists available for this station")
 
@@ -749,7 +749,7 @@ async def listen_stream(
         entry_index = position.entry_index
         # verify the run still exists
         run = await run_repo.get(run_id)
-        if not run or run.status != "ready":
+        if not run or run.status not in ("ready", "saved"):
             run_id = ready_runs[0].id
             entry_index = 0
     else:

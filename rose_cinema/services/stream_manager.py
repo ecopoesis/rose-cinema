@@ -319,7 +319,7 @@ class StreamManager:
             async with self._sf() as session:
                 run_repo = SqlPlaylistRunRepository(session)
                 runs = await run_repo.list_by_station(info.station_id)
-                ready_runs = [r for r in runs if r.status == "ready"]
+                ready_runs = [r for r in runs if r.status in ("ready", "saved")]
 
                 current_idx = next((i for i, r in enumerate(ready_runs) if r.id == info.run_id), -1)
                 if current_idx >= 0 and current_idx + 1 < len(ready_runs):
