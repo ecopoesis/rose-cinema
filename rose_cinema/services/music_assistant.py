@@ -69,6 +69,21 @@ class MusicAssistantClient:
         if r.get("error"):
             raise RuntimeError(f"MA play_media failed: {r['error']}")
 
+    async def get_player_state(self, player_id: str) -> dict:
+        async with self._session() as (ws, mid):
+            r = await _call(ws, mid, "players/get_player", player_id=player_id)
+        player = r.get("result") or {}
+        return {
+            "state": player.get("state", ""),
+            "elapsed_time": player.get("elapsed_time", 0),
+            "current_item": player.get("current_item"),
+        }
+
+    async def get_queue_items(self, queue_id: str) -> list[dict]:
+        async with self._session() as (ws, mid):
+            r = await _call(ws, mid, "player_queues/items", queue_id=queue_id)
+        return r.get("result") or []
+
     async def remove_playlist(self, playlist_id: str) -> None:
         async with self._session() as (ws, mid):
             r = await _call(

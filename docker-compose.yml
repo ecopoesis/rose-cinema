@@ -46,5 +46,7 @@ services:
       MA_DEFAULT_PLAYER_ID: ${MA_DEFAULT_PLAYER_ID:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       CHATTERBOX_URL: ${CHATTERBOX_URL:-http://host.docker.internal:8004}
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-hackme}
+      SQUEEZELITE_PATH: squeezelite
     extra_hosts:
       - "host.docker.internal:host-gateway"

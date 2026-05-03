@@ -35,6 +35,18 @@ class StationRecord:
     album_art: str = ""
     cron_schedule: str | None = None
     discovery_rate: float = 0.5
+    slug: str = ""
+
+
+@dataclass
+class ListenPositionRecord:
+    id: str = ""
+    station_id: str = ""
+    uid: str = ""
+    run_id: str = ""
+    entry_index: int = 0
+    listened_date: str = ""
+    updated_at: str | None = None
 
 
 @dataclass
@@ -75,6 +87,9 @@ class StationRepository(ABC):
     async def get(self, station_id: str) -> StationRecord | None: ...
 
     @abstractmethod
+    async def get_by_slug(self, slug: str) -> StationRecord | None: ...
+
+    @abstractmethod
     async def list_all(self) -> list[StationRecord]: ...
 
     @abstractmethod
@@ -105,3 +120,11 @@ class PlaylistRunRepository(ABC):
 
     @abstractmethod
     async def delete(self, run_id: str) -> bool: ...
+
+
+class ListenPositionRepository(ABC):
+    @abstractmethod
+    async def get_position(self, station_id: str, uid: str, date: str) -> ListenPositionRecord | None: ...
+
+    @abstractmethod
+    async def upsert_position(self, record: ListenPositionRecord) -> ListenPositionRecord: ...

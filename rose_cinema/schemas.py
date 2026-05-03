@@ -49,6 +49,7 @@ class StationCreate(BaseModel):
     source_tracks: list[str] | None = None
     cron_schedule: str | None = None
     discovery_rate: float = Field(default=0.5, ge=0.0, le=1.0)
+    slug: str | None = None
 
 
 class StationUpdate(BaseModel):
@@ -85,6 +86,7 @@ class StationResponse(BaseModel):
     cron_schedule: str | None = None
     discovery_rate: float
     album_art: str
+    slug: str
 
 
 # ── Test Playlist (track-only preview) ────────────────────────────────
@@ -216,6 +218,7 @@ class StationExport(BaseModel):
     discovery_rate: float = Field(default=0.5, ge=0.0, le=1.0)
     dj_name: str | None = None
     album_art: str = ""
+    slug: str | None = None
 
 
 class ExportData(BaseModel):

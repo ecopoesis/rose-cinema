@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile
+from datetime import date
+
+import httpx
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rose_cinema.config import settings
@@ -17,10 +21,13 @@ from rose_cinema.repositories.sql import (
     SqlDJRepository,
     SqlStationRepository,
     SqlPlaylistRunRepository,
+    SqlListenPositionRepository,
 )
+from rose_cinema.repositories import ListenPositionRecord
 from rose_cinema.services.music_assistant import get_music_assistant_client
 from rose_cinema.services.queue import EventQueue, QueueWorker, enqueue_ma_chain
 from rose_cinema.services.scheduler import CronScheduler
+from rose_cinema.services.stream_manager import StreamManager
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
@@ -36,16 +43,21 @@ logger = logging.getLogger(__name__)
 
 _worker: QueueWorker | None = None
 _scheduler: CronScheduler | None = None
+_stream_manager: StreamManager | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _worker, _scheduler
+    global _worker, _scheduler, _stream_manager
     _worker = QueueWorker(async_session)
     await _worker.start()
     _scheduler = CronScheduler(async_session)
     await _scheduler.start()
+    _stream_manager = StreamManager(async_session)
+    await _stream_manager.start_background_tasks()
     yield
+    await _stream_manager.shutdown()
+    _stream_manager = None
     await _scheduler.stop()
     _scheduler = None
     await _worker.stop()
@@ -557,40 +569,15 @@ async def play_run(
         if station.album_art and (Path(settings.album_art_dir) / station.album_art).exists():
             art_url = f"{base}/api/stations/{station.id}/album-art"
 
-    ep = run.episode
-    items: list[str | dict] = []
-    dj_part = 0
-    for e in json.loads(run.playlist_json):
-        if e.get("type") == "song" and e.get("apple_music_id"):
-            items.append(f"apple_music://track/{e['apple_music_id']}")
-        elif e.get("type") == "dj" and e.get("audio_file"):
-            fname = Path(e['audio_file']).name
-            url = f"{base}/audio/{fname}"
-            if ep and station:
-                seg_name = f"{station.name} - Episode {ep} - Intro" if dj_part == 0 else f"{station.name} - Episode {ep} - Part {dj_part}"
-            else:
-                seg_name = f"{station.name} - DJ {dj_part}" if station else f"DJ Segment {dj_part}"
-            dj_part += 1
-            item = {
-                "uri": url,
-                "item_id": url,
-                "provider": "builtin",
-                "media_type": "track",
-                "name": seg_name,
-                "artists": [{
-                    "name": dj_name,
-                    "item_id": dj_name,
-                    "provider": "builtin",
-                    "media_type": "artist",
-                }],
-                "metadata": {}
-            }
-            if art_url:
-                item["metadata"]["images"] = [{"type": "thumb", "path": art_url, "provider": "builtin", "remotely_accessible": True}]
-            items.append(item)
-        else:
-            logger.warning("Skipping unplayable entry: type=%s id=%s file=%s",
-                           e.get("type"), e.get("apple_music_id"), e.get("audio_file"))
+    from rose_cinema.services.playlist_items import build_ma_media_items
+    items = build_ma_media_items(
+        run.playlist_json,
+        station_name=station.name if station else "",
+        dj_name=dj_name,
+        base_url=base,
+        art_url=art_url,
+        episode=run.episode,
+    )
 
     if not items:
         raise HTTPException(400, "No playable entries (no apple_music_ids and no DJ audio)")
@@ -664,6 +651,7 @@ async def export_all(session: AsyncSession = Depends(get_session)):
                 discovery_rate=s.discovery_rate,
                 dj_name=dj_map.get(s.dj_id) if s.dj_id else None,
                 album_art=s.album_art,
+                slug=s.slug,
             )
             for s in all_stations
         ],
@@ -719,6 +707,132 @@ async def import_all(body: ExportData, session: AsyncSession = Depends(get_sessi
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+# ── Listen (personal Icecast stream) ──────────────────────────────────
+
+
+@app.get("/listen/{station_slug}")
+async def listen_stream(
+    station_slug: str,
+    uid: str = Query(..., min_length=1, max_length=200),
+    session: AsyncSession = Depends(get_session),
+):
+    global _stream_manager
+    if _stream_manager is None:
+        raise HTTPException(503, "Stream manager not initialized")
+
+    station_repo = SqlStationRepository(session)
+    station = await station_repo.get_by_slug(station_slug)
+    if not station:
+        raise HTTPException(404, "Station not found")
+
+    client = get_music_assistant_client()
+    if client is None:
+        raise HTTPException(503, "Music Assistant not configured (set MA_URL and MA_TOKEN)")
+    if not settings.public_base_url:
+        raise HTTPException(503, "PUBLIC_BASE_URL not configured")
+
+    # resolve listen position
+    pos_repo = SqlListenPositionRepository(session)
+    today = date.today().isoformat()
+    position = await pos_repo.get_position(station.id, uid, today)
+
+    run_repo = SqlPlaylistRunRepository(session)
+    runs = await run_repo.list_by_station(station.id)
+    ready_runs = [r for r in runs if r.status == "ready"]
+    if not ready_runs:
+        raise HTTPException(404, "No playlists available for this station")
+
+    if position:
+        run_id = position.run_id
+        entry_index = position.entry_index
+        # verify the run still exists
+        run = await run_repo.get(run_id)
+        if not run or run.status != "ready":
+            run_id = ready_runs[0].id
+            entry_index = 0
+    else:
+        run_id = ready_runs[0].id
+        entry_index = 0
+
+    run = await run_repo.get(run_id)
+    if not run:
+        raise HTTPException(404, "Playlist run not found")
+
+    # upsert initial position
+    await pos_repo.upsert_position(ListenPositionRecord(
+        station_id=station.id,
+        uid=uid,
+        run_id=run_id,
+        entry_index=entry_index,
+        listened_date=today,
+    ))
+
+    # resolve DJ info for media items
+    base = settings.public_base_url.rstrip("/")
+    dj_name = "?"
+    art_url = None
+    if station.dj_id:
+        dj_repo = SqlDJRepository(session)
+        dj = await dj_repo.get(station.dj_id)
+        if dj:
+            dj_name = dj.name
+    if station.album_art and (Path(settings.album_art_dir) / station.album_art).exists():
+        art_url = f"{base}/api/stations/{station.id}/album-art"
+
+    # get or start stream
+    stream = _stream_manager.get_stream(station.id, uid)
+    if not stream:
+        stream = await _stream_manager.start_stream(
+            station_id=station.id,
+            uid=uid,
+            slug=station_slug,
+            run_id=run_id,
+            playlist_json=run.playlist_json,
+            station_name=station.name,
+            dj_name=dj_name,
+            base_url=base,
+            art_url=art_url,
+            episode=run.episode,
+            entry_index=entry_index,
+        )
+
+    icecast_url = f"http://{settings.icecast_host}:{settings.icecast_port}{stream.mount}"
+
+    async def proxy_stream():
+        _stream_manager.listener_connect(station.id, uid)
+        try:
+            async with httpx.AsyncClient() as http:
+                # retry connecting to icecast mount (may take a moment to appear)
+                for attempt in range(20):
+                    try:
+                        async with http.stream("GET", icecast_url) as resp:
+                            if resp.status_code != 200:
+                                raise httpx.HTTPStatusError(
+                                    f"Icecast returned {resp.status_code}",
+                                    request=resp.request, response=resp,
+                                )
+                            async for chunk in resp.aiter_bytes(chunk_size=8192):
+                                yield chunk
+                            return
+                    except (httpx.ConnectError, httpx.HTTPStatusError):
+                        if attempt < 19:
+                            await asyncio.sleep(0.5)
+                        else:
+                            raise
+        finally:
+            _stream_manager.listener_disconnect(station.id, uid)
+
+    return StreamingResponse(
+        proxy_stream(),
+        media_type="audio/mpeg",
+        headers={
+            "icy-name": station.name,
+            "Cache-Control": "no-cache, no-store",
+            "Connection": "close",
+        },
+    )
 
 
 # ── Web UI (must be mounted last so it doesn't shadow /api routes) ────

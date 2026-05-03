@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rose_cinema.models import DJ, Station, PlaylistRun
+from rose_cinema.models import DJ, Station, PlaylistRun, ListenPosition, slugify
 from rose_cinema.repositories import (
     DJRecord,
     DJRepository,
@@ -13,6 +14,8 @@ from rose_cinema.repositories import (
     StationRepository,
     PlaylistRunRecord,
     PlaylistRunRepository,
+    ListenPositionRecord,
+    ListenPositionRepository,
 )
 
 
@@ -48,6 +51,19 @@ def _station_to_record(s: Station) -> StationRecord:
         album_art=s.album_art or "",
         cron_schedule=s.cron_schedule,
         discovery_rate=s.discovery_rate,
+        slug=s.slug,
+    )
+
+
+def _pos_to_record(p: ListenPosition) -> ListenPositionRecord:
+    return ListenPositionRecord(
+        id=p.id,
+        station_id=p.station_id,
+        uid=p.uid,
+        run_id=p.run_id,
+        entry_index=p.entry_index,
+        listened_date=p.listened_date.isoformat() if p.listened_date else "",
+        updated_at=p.updated_at.isoformat() if p.updated_at else None,
     )
 
 
@@ -126,11 +142,26 @@ class SqlStationRepository(StationRepository):
         obj = await self._session.get(Station, station_id)
         return _station_to_record(obj) if obj else None
 
+    async def get_by_slug(self, slug: str) -> StationRecord | None:
+        result = await self._session.execute(
+            select(Station).where(Station.slug == slug)
+        )
+        obj = result.scalar_one_or_none()
+        return _station_to_record(obj) if obj else None
+
     async def list_all(self) -> list[StationRecord]:
         result = await self._session.execute(select(Station).order_by(Station.name))
         return [_station_to_record(r) for r in result.scalars().all()]
 
     async def create(self, record: StationRecord) -> StationRecord:
+        slug = record.slug or slugify(record.name)
+        existing = await self.get_by_slug(slug)
+        suffix = 2
+        base = slug
+        while existing:
+            slug = f"{base}-{suffix}"
+            existing = await self.get_by_slug(slug)
+            suffix += 1
         obj = Station(
             name=record.name,
             description=record.description,
@@ -147,6 +178,7 @@ class SqlStationRepository(StationRepository):
             album_art=record.album_art or None,
             cron_schedule=record.cron_schedule,
             discovery_rate=record.discovery_rate,
+            slug=slug,
         )
         self._session.add(obj)
         await self._session.commit()
@@ -172,6 +204,8 @@ class SqlStationRepository(StationRepository):
         obj.album_art = record.album_art or None
         obj.cron_schedule = record.cron_schedule
         obj.discovery_rate = record.discovery_rate
+        if record.slug:
+            obj.slug = record.slug
         await self._session.commit()
         await self._session.refresh(obj)
         return _station_to_record(obj)
@@ -260,3 +294,43 @@ class SqlPlaylistRunRepository(PlaylistRunRepository):
         await self._session.delete(obj)
         await self._session.commit()
         return True
+
+
+# ── ListenPosition ────────────────────────────────────────────────────
+
+
+class SqlListenPositionRepository(ListenPositionRepository):
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def get_position(self, station_id: str, uid: str, date: str) -> ListenPositionRecord | None:
+        result = await self._session.execute(
+            select(ListenPosition).where(
+                ListenPosition.station_id == station_id,
+                ListenPosition.uid == uid,
+                ListenPosition.listened_date == date,
+            )
+        )
+        obj = result.scalar_one_or_none()
+        return _pos_to_record(obj) if obj else None
+
+    async def upsert_position(self, record: ListenPositionRecord) -> ListenPositionRecord:
+        stmt = pg_insert(ListenPosition).values(
+            id=record.id or str(__import__("uuid").uuid4()),
+            station_id=record.station_id,
+            uid=record.uid,
+            run_id=record.run_id,
+            entry_index=record.entry_index,
+            listened_date=record.listened_date,
+        ).on_conflict_do_update(
+            index_elements=["station_id", "uid", "listened_date"],
+            set_={
+                "run_id": record.run_id,
+                "entry_index": record.entry_index,
+                "updated_at": func.now(),
+            },
+        ).returning(ListenPosition)
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        obj = result.scalar_one()
+        return _pos_to_record(obj)

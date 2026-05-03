@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import re
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Float, Integer, String, Text, DateTime, ForeignKey, func
+from sqlalchemy import (
+    Date, Float, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -14,6 +18,10 @@ class Base(DeclarativeBase):
 
 def _uuid() -> str:
     return str(uuid.uuid4())
+
+
+def slugify(name: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-') or 'station'
 
 
 class DJ(Base):
@@ -62,6 +70,7 @@ class Station(Base):
     source_tracks: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     album_art: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    slug: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
     cron_schedule: Mapped[str | None] = mapped_column(String(100), nullable=True)
     discovery_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
 
@@ -123,3 +132,24 @@ class GenerationEvent(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     run: Mapped[PlaylistRun] = relationship(back_populates="events")
+
+
+class ListenPosition(Base):
+    __tablename__ = "listen_positions"
+    __table_args__ = (
+        UniqueConstraint("station_id", "uid", "listened_date"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    station_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("stations.id", ondelete="CASCADE"), nullable=False,
+    )
+    uid: Mapped[str] = mapped_column(String(200), nullable=False)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("playlist_runs.id", ondelete="CASCADE"), nullable=False,
+    )
+    entry_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    listened_date: Mapped[date] = mapped_column(Date, nullable=False, server_default=func.current_date())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

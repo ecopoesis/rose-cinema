@@ -10,10 +10,13 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# ffmpeg for piper WAV -> MP3 conversion; build-essential for any
-# native deps that have to compile
+# ffmpeg for piper WAV -> MP3 conversion and icecast encoding;
+# squeezelite for MA SlimProto playback; icecast2 for stream serving;
+# build-essential for any native deps that have to compile
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    squeezelite \
+    icecast2 \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -35,7 +38,9 @@ COPY alembic/ alembic/
 COPY alembic.ini .
 COPY agents/ agents/
 COPY --from=frontend /build/dist/ web/dist/
+COPY deploy/icecast.xml /etc/icecast2/icecast.xml
+RUN mkdir -p /var/log/icecast2 && chown nobody:nogroup /var/log/icecast2
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && exec python -m uvicorn rose_cinema.api:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "icecast2 -c /etc/icecast2/icecast.xml -b && alembic upgrade head && exec python -m uvicorn rose_cinema.api:app --host 0.0.0.0 --port 8000"]

@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     ma_default_player_id: str = Field(default="")
     public_base_url: str = Field(default="")  # how MA reaches us for DJ audio
 
+    # Icecast (listen/stream)
+    icecast_host: str = Field(default="127.0.0.1")
+    icecast_port: int = Field(default=8001)
+    icecast_source_password: str = Field(default="hackme")
+    squeezelite_path: str = Field(default="squeezelite")
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
