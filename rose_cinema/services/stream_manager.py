@@ -305,9 +305,7 @@ class StreamManager:
             for key, info in list(self._streams.items()):
                 try:
                     state = await client.get_player_state(info.player_name)
-                    if state.get("state") == "idle":
-                        await self._handle_playlist_end(info)
-                    elif state.get("current_item"):
+                    if state.get("current_item"):
                         await self._update_position_from_state(info, state)
                 except Exception:
                     logger.debug("Position poll failed for %s", key, exc_info=True)
