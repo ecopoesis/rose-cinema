@@ -100,6 +100,7 @@ class SlimProtoClient:
 
     async def _handle(self, cmd: bytes, payload: bytes) -> None:
         tag = cmd.decode(errors="replace").strip().lower()
+        logger.debug("SlimProto %s recv: %s (%d bytes)", self.player_name, tag, len(payload))
         if tag == "vers":
             pass
         elif tag == "setd":
@@ -164,6 +165,7 @@ class SlimProtoClient:
 
     async def _fetch_audio(self, url: str) -> None:
         await self._send_stat(b"STMc")
+        decoder = None
         try:
             decoder = await asyncio.create_subprocess_exec(
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -176,11 +178,14 @@ class SlimProtoClient:
 
             async def _read_pcm():
                 assert decoder.stdout
+                total = 0
                 while True:
                     pcm = await decoder.stdout.read(65536)
                     if not pcm:
                         break
+                    total += len(pcm)
                     await self._audio_queue.put(pcm)
+                logger.info("Decoder produced %d bytes of PCM for %s", total, self.player_name)
 
             read_task = asyncio.create_task(_read_pcm())
 
@@ -193,15 +198,20 @@ class SlimProtoClient:
                         await read_task
                         return
                     await self._send_stat(b"STMs")
+                    fetched = 0
                     async for chunk in resp.aiter_bytes(65536):
                         self._jiffies += len(chunk)
+                        fetched += len(chunk)
                         if decoder.stdin and not decoder.stdin.is_closing():
                             decoder.stdin.write(chunk)
                             await decoder.stdin.drain()
+                    logger.info("Fetched %d bytes of FLAC from %s", fetched, url)
             if decoder.stdin and not decoder.stdin.is_closing():
                 decoder.stdin.close()
             await read_task
+            logger.info("Sending STMd for %s", self.player_name)
             await self._send_stat(b"STMd")
+            await self._send_stat(b"STMu")
         except asyncio.CancelledError:
             if decoder and decoder.returncode is None:
                 decoder.kill()
