@@ -71,13 +71,15 @@ class MusicAssistantClient:
 
     async def get_player_state(self, player_id: str) -> dict:
         async with self._session() as (ws, mid):
-            r = await _call(ws, mid, "players/get_player", player_id=player_id)
-        player = r.get("result") or {}
-        return {
-            "state": player.get("state", ""),
-            "elapsed_time": player.get("elapsed_time", 0),
-            "current_item": player.get("current_item"),
-        }
+            r = await _call(ws, mid, "players/all")
+        for p in (r.get("result") or []):
+            if p.get("player_id") == player_id or p.get("display_name") == player_id:
+                return {
+                    "state": p.get("state", ""),
+                    "elapsed_time": p.get("elapsed_time", 0),
+                    "current_item": p.get("current_item"),
+                }
+        return {"state": "", "elapsed_time": 0, "current_item": None}
 
     async def get_queue_items(self, queue_id: str) -> list[dict]:
         async with self._session() as (ws, mid):

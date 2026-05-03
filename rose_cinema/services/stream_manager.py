@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,12 +18,20 @@ from rose_cinema.repositories.sql import (
 from rose_cinema.repositories import ListenPositionRecord
 from rose_cinema.services.music_assistant import get_music_assistant_client
 from rose_cinema.services.playlist_items import build_ma_media_items
+from rose_cinema.services.slimproto_client import SlimProtoClient
 
 logger = logging.getLogger(__name__)
 
 HEALTH_INTERVAL = 10
 POSITION_INTERVAL = 15
 IDLE_TIMEOUT = 300
+
+
+def _stable_mac(key: str) -> bytes:
+    h = hashlib.md5(key.encode()).digest()
+    mac = bytearray(h[:6])
+    mac[0] = (mac[0] & 0xFE) | 0x02  # locally administered, unicast
+    return bytes(mac)
 
 
 @dataclass
@@ -33,8 +43,9 @@ class StreamInfo:
     mount: str
     run_id: str
     entry_index: int = 0
-    squeezelite_proc: asyncio.subprocess.Process | None = None
+    slim_client: SlimProtoClient | None = None
     ffmpeg_proc: asyncio.subprocess.Process | None = None
+    feed_task: asyncio.Task | None = None
     started_at: datetime | None = None
     active_listeners: int = 0
     last_listener_at: datetime | None = None
@@ -68,22 +79,22 @@ class StreamManager:
     ) -> StreamInfo:
         key = _stream_key(station_id, uid)
         existing = self._streams.get(key)
-        if existing and existing.squeezelite_proc and existing.squeezelite_proc.returncode is None:
+        if existing and existing.slim_client and existing.slim_client._connected:
             return existing
 
         player_name = f"rc-{slug}"[:15]
         mount = f"/{player_name}"
 
-        ma_host = settings.ma_url.replace("https://", "").replace("http://", "").split(":")[0]
-        if not ma_host:
-            raise RuntimeError("MA_URL not configured")
+        parsed = urlparse(settings.ma_url)
+        ma_host = parsed.hostname or "127.0.0.1"
 
-        sq_proc = await asyncio.create_subprocess_exec(
-            settings.squeezelite_path, "-o", "-", "-n", player_name,
-            "-s", ma_host, "-C", "5",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        slim = SlimProtoClient(
+            server=ma_host,
+            port=3483,
+            player_name=player_name,
+            mac=_stable_mac(key),
         )
+        await slim.connect()
 
         icecast_url = (
             f"icecast://source:{settings.icecast_source_password}"
@@ -91,15 +102,13 @@ class StreamManager:
         )
         ff_proc = await asyncio.create_subprocess_exec(
             "ffmpeg", "-hide_banner", "-loglevel", "warning",
-            "-f", "s32le", "-ar", "44100", "-ac", "2", "-i", "pipe:0",
+            "-i", "pipe:0",
             "-c:a", "libmp3lame", "-b:a", "192k",
             "-f", "mp3", icecast_url,
             stdin=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        # uvloop can't wire stdout→stdin directly (no fileno on StreamReader),
-        # so shuttle bytes between the two processes in a background task
-        asyncio.create_task(self._pipe(sq_proc.stdout, ff_proc.stdin, player_name))
+        feed_task = asyncio.create_task(self._feed_ffmpeg(slim, ff_proc, player_name))
 
         info = StreamInfo(
             station_id=station_id,
@@ -109,18 +118,15 @@ class StreamManager:
             mount=mount,
             run_id=run_id,
             entry_index=entry_index,
-            squeezelite_proc=sq_proc,
+            slim_client=slim,
             ffmpeg_proc=ff_proc,
+            feed_task=feed_task,
             started_at=datetime.now(timezone.utc),
             last_listener_at=datetime.now(timezone.utc),
         )
         self._streams[key] = info
 
-        # drain stderr in background to avoid blocking
-        asyncio.create_task(self._drain_stderr(sq_proc, f"squeezelite[{player_name}]"))
         asyncio.create_task(self._drain_stderr(ff_proc, f"ffmpeg[{player_name}]"))
-
-        # wait for squeezelite to register with MA, then push playlist
         asyncio.create_task(self._wait_and_play(info, playlist_json, station_name, dj_name, base_url, art_url, episode))
 
         return info
@@ -131,12 +137,12 @@ class StreamManager:
         if not info:
             return
         await self._save_position(info)
-        await self._kill_processes(info)
+        await self._kill_stream(info)
 
     def get_stream(self, station_id: str, uid: str) -> StreamInfo | None:
         key = _stream_key(station_id, uid)
         info = self._streams.get(key)
-        if info and info.squeezelite_proc and info.squeezelite_proc.returncode is not None:
+        if info and info.slim_client and not info.slim_client._connected:
             return None
         return info
 
@@ -185,7 +191,6 @@ class StreamManager:
             logger.error("MA client unavailable, cannot start playback")
             return
 
-        # poll until squeezelite appears in MA (up to 10s)
         for _ in range(20):
             try:
                 players = await client.list_players()
@@ -195,7 +200,7 @@ class StreamManager:
                 pass
             await asyncio.sleep(0.5)
         else:
-            logger.warning("squeezelite player %s did not appear in MA within 10s", info.player_name)
+            logger.warning("SlimProto player %s did not appear in MA within 10s", info.player_name)
 
         items = build_ma_media_items(
             playlist_json,
@@ -227,23 +232,24 @@ class StreamManager:
         except Exception:
             logger.exception("Failed to start playback on %s", player_id)
 
-    async def _pipe(self, src: asyncio.StreamReader, dst: asyncio.StreamWriter, label: str) -> None:
+    async def _feed_ffmpeg(self, slim: SlimProtoClient, ff: asyncio.subprocess.Process, label: str) -> None:
         try:
-            while True:
-                chunk = await src.read(65536)
-                if not chunk:
+            async for chunk in slim.audio_chunks():
+                if ff.stdin and not ff.stdin.is_closing():
+                    ff.stdin.write(chunk)
+                    await ff.stdin.drain()
+                else:
                     break
-                dst.write(chunk)
-                await dst.drain()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, asyncio.CancelledError):
             pass
         except Exception:
-            logger.debug("Pipe error for %s", label, exc_info=True)
+            logger.debug("Feed error for %s", label, exc_info=True)
         finally:
-            try:
-                dst.close()
-            except Exception:
-                pass
+            if ff.stdin and not ff.stdin.is_closing():
+                try:
+                    ff.stdin.close()
+                except Exception:
+                    pass
 
     async def _drain_stderr(self, proc: asyncio.subprocess.Process, label: str) -> None:
         assert proc.stderr is not None
@@ -252,16 +258,17 @@ class StreamManager:
             if text:
                 logger.debug("[%s] %s", label, text)
 
-    async def _kill_processes(self, info: StreamInfo) -> None:
-        for proc in (info.ffmpeg_proc, info.squeezelite_proc):
-            if proc and proc.returncode is None:
-                proc.terminate()
-        for proc in (info.ffmpeg_proc, info.squeezelite_proc):
-            if proc and proc.returncode is None:
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    proc.kill()
+    async def _kill_stream(self, info: StreamInfo) -> None:
+        if info.slim_client:
+            await info.slim_client.disconnect()
+        if info.feed_task and not info.feed_task.done():
+            info.feed_task.cancel()
+        if info.ffmpeg_proc and info.ffmpeg_proc.returncode is None:
+            info.ffmpeg_proc.terminate()
+            try:
+                await asyncio.wait_for(info.ffmpeg_proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                info.ffmpeg_proc.kill()
 
     async def _save_position(self, info: StreamInfo) -> None:
         try:
@@ -281,12 +288,12 @@ class StreamManager:
         while True:
             await asyncio.sleep(HEALTH_INTERVAL)
             for key, info in list(self._streams.items()):
-                sq_dead = info.squeezelite_proc and info.squeezelite_proc.returncode is not None
+                slim_dead = info.slim_client and not info.slim_client._connected
                 ff_dead = info.ffmpeg_proc and info.ffmpeg_proc.returncode is not None
-                if sq_dead or ff_dead:
-                    logger.warning("Stream %s has dead process (sq=%s ff=%s), cleaning up", key, sq_dead, ff_dead)
+                if slim_dead or ff_dead:
+                    logger.warning("Stream %s has dead component (slim=%s ff=%s), cleaning up", key, slim_dead, ff_dead)
                     await self._save_position(info)
-                    await self._kill_processes(info)
+                    await self._kill_stream(info)
                     self._streams.pop(key, None)
 
     async def _position_loop(self) -> None:
@@ -374,7 +381,7 @@ class StreamManager:
                     logger.info("No more runs for %s:%s, stopping stream", info.station_id, info.uid)
                     key = _stream_key(info.station_id, info.uid)
                     await self._save_position(info)
-                    await self._kill_processes(info)
+                    await self._kill_stream(info)
                     self._streams.pop(key, None)
         except Exception:
             logger.exception("Fallback handling failed for %s:%s", info.station_id, info.uid)
