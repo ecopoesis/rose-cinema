@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date as date_type
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -308,7 +309,7 @@ class SqlListenPositionRepository(ListenPositionRepository):
             select(ListenPosition).where(
                 ListenPosition.station_id == station_id,
                 ListenPosition.uid == uid,
-                ListenPosition.listened_date == date,
+                ListenPosition.listened_date == date_type.fromisoformat(date),
             )
         )
         obj = result.scalar_one_or_none()
@@ -321,7 +322,7 @@ class SqlListenPositionRepository(ListenPositionRepository):
             uid=record.uid,
             run_id=record.run_id,
             entry_index=record.entry_index,
-            listened_date=record.listened_date,
+            listened_date=date_type.fromisoformat(record.listened_date),
         ).on_conflict_do_update(
             index_elements=["station_id", "uid", "listened_date"],
             set_={
