@@ -11,14 +11,18 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # ffmpeg for piper WAV -> MP3 conversion and icecast encoding;
-# squeezelite for MA SlimProto playback; icecast2 for stream serving;
-# build-essential for any native deps that have to compile
+# icecast2 for stream serving; build-essential for any native deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    squeezelite \
     icecast2 \
+    curl \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# squeezelite: Debian's package (2.0.0-1517) is too old for MA 2.8+'s
+# SlimProto protocol (unhandled "vers" command). Fetch a recent static build.
+RUN curl -sL 'https://sourceforge.net/projects/lmsclients/files/squeezelite/linux/squeezelite-2.0.0.1541-x86_64.tar.gz/download' \
+    | tar xz -C /usr/local/bin squeezelite && chmod +x /usr/local/bin/squeezelite
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
