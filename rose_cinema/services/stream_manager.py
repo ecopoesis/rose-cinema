@@ -94,9 +94,12 @@ class StreamManager:
             "-f", "s16le", "-ar", "44100", "-ac", "2", "-i", "pipe:0",
             "-c:a", "libmp3lame", "-b:a", "192k",
             "-f", "mp3", icecast_url,
-            stdin=sq_proc.stdout,
+            stdin=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        # uvloop can't wire stdout→stdin directly (no fileno on StreamReader),
+        # so shuttle bytes between the two processes in a background task
+        asyncio.create_task(self._pipe(sq_proc.stdout, ff_proc.stdin, player_name))
 
         info = StreamInfo(
             station_id=station_id,
@@ -223,6 +226,24 @@ class StreamManager:
             logger.info("Started playback on %s (%d items from index %d)", player_id, len(items), info.entry_index)
         except Exception:
             logger.exception("Failed to start playback on %s", player_id)
+
+    async def _pipe(self, src: asyncio.StreamReader, dst: asyncio.StreamWriter, label: str) -> None:
+        try:
+            while True:
+                chunk = await src.read(65536)
+                if not chunk:
+                    break
+                dst.write(chunk)
+                await dst.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception:
+            logger.debug("Pipe error for %s", label, exc_info=True)
+        finally:
+            try:
+                dst.close()
+            except Exception:
+                pass
 
     async def _drain_stderr(self, proc: asyncio.subprocess.Process, label: str) -> None:
         assert proc.stderr is not None
