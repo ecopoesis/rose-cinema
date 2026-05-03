@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -305,7 +306,9 @@ class StreamManager:
             for key, info in list(self._streams.items()):
                 try:
                     state = await client.get_player_state(info.player_name)
-                    if state.get("current_item"):
+                    if state.get("state") == "idle":
+                        await self._handle_idle(info)
+                    elif state.get("current_item"):
                         await self._update_position_from_state(info, state)
                 except Exception:
                     logger.debug("Position poll failed for %s", key, exc_info=True)
@@ -338,6 +341,51 @@ class StreamManager:
                     entry_index=info.entry_index,
                     listened_date=date.today().isoformat(),
                 ))
+
+    async def _handle_idle(self, info: StreamInfo) -> None:
+        try:
+            async with self._sf() as session:
+                run_repo = SqlPlaylistRunRepository(session)
+                run = await run_repo.get(info.run_id)
+                if not run:
+                    logger.warning("Run %s not found for idle handler", info.run_id)
+                    await self._handle_playlist_end(info)
+                    return
+
+                entries = json.loads(run.playlist_json)
+                next_index = info.entry_index + 1
+                if next_index < len(entries):
+                    info.entry_index = next_index
+                    station_repo = SqlStationRepository(session)
+                    station = await station_repo.get(info.station_id)
+                    dj_name = "?"
+                    art_url = None
+                    base_url = settings.public_base_url.rstrip("/")
+                    if station and station.dj_id:
+                        from rose_cinema.repositories.sql import SqlDJRepository
+                        dj_repo = SqlDJRepository(session)
+                        dj = await dj_repo.get(station.dj_id)
+                        if dj:
+                            dj_name = dj.name
+
+                    await self._wait_and_play(
+                        info, run.playlist_json,
+                        station_name=station.name if station else "",
+                        dj_name=dj_name,
+                        base_url=base_url,
+                        art_url=art_url,
+                        episode=run.episode,
+                    )
+                    await self._save_position(info)
+                    logger.info(
+                        "Advanced to entry %d/%d in run %s for %s:%s",
+                        next_index, len(entries), info.run_id, info.station_id, info.uid,
+                    )
+                else:
+                    logger.info("Run %s exhausted at entry %d, falling back", info.run_id, info.entry_index)
+                    await self._handle_playlist_end(info)
+        except Exception:
+            logger.exception("Idle handler failed for %s:%s", info.station_id, info.uid)
 
     async def _handle_playlist_end(self, info: StreamInfo) -> None:
         logger.info("Playlist ended for %s:%s (run %s), looking for fallback", info.station_id, info.uid, info.run_id)
