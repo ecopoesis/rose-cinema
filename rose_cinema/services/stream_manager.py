@@ -101,8 +101,9 @@ class StreamManager:
             f"@{settings.icecast_host}:{settings.icecast_port}{mount}"
         )
         ff_proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-hide_banner", "-loglevel", "warning",
-            "-i", "pipe:0",
+            "ffmpeg", "-hide_banner", "-loglevel", "info",
+            "-probesize", "32768", "-analyzeduration", "0",
+            "-f", "flac", "-i", "pipe:0",
             "-c:a", "libmp3lame", "-b:a", "192k",
             "-f", "mp3", icecast_url,
             stdin=asyncio.subprocess.PIPE,
@@ -191,7 +192,7 @@ class StreamManager:
             logger.error("MA client unavailable, cannot start playback")
             return
 
-        for _ in range(20):
+        for _ in range(60):
             try:
                 players = await client.list_players()
                 if any(p.display_name == info.player_name or p.player_id == info.player_name for p in players):
@@ -200,7 +201,7 @@ class StreamManager:
                 pass
             await asyncio.sleep(0.5)
         else:
-            logger.warning("SlimProto player %s did not appear in MA within 10s", info.player_name)
+            logger.warning("SlimProto player %s did not appear in MA within 30s", info.player_name)
 
         items = build_ma_media_items(
             playlist_json,
@@ -256,7 +257,7 @@ class StreamManager:
         async for line in proc.stderr:
             text = line.decode(errors="replace").rstrip()
             if text:
-                logger.debug("[%s] %s", label, text)
+                logger.info("[%s] %s", label, text)
 
     async def _kill_stream(self, info: StreamInfo) -> None:
         if info.slim_client:
