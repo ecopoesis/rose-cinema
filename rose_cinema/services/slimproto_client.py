@@ -59,7 +59,7 @@ class SlimProtoClient:
             f"Firmware=rc-1.0,MaxSampleRate=384000,"
             "CanHTTPS=1,flc,aif,pcm,mp3,aac,ogg,ops,alc"
         )
-        data = struct.pack("BB6s", 10, 0, self.mac)
+        data = struct.pack("BB6s", 12, 0, self.mac)
         data += b"\x00" * 16  # UUID
         data += struct.pack("!H", 0)  # wlan channels
         data += struct.pack("!Q", 0)  # bytes received
@@ -104,11 +104,10 @@ class SlimProtoClient:
             pass
         elif tag == "setd":
             if payload and payload[0] == 0:
-                name_data = struct.pack("B", 0) + self.player_name.encode()
+                name_data = struct.pack("B", 0) + self.player_name.encode() + b"\x00"
                 await self._send_frame(b"SETD", name_data)
             elif payload and payload[0] == 0xFE:
-                name_data = struct.pack("B", 0xFE) + self.player_name.encode()
-                await self._send_frame(b"SETD", name_data)
+                pass
         elif tag == "strm":
             await self._handle_strm(payload)
         elif tag in ("aude", "audg", "grfb", "grfe", "grfs", "visu", "anic"):
