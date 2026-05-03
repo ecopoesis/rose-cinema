@@ -803,9 +803,8 @@ async def listen_stream(
     async def proxy_stream():
         _stream_manager.listener_connect(station.id, uid)
         try:
-            async with httpx.AsyncClient() as http:
-                # retry connecting to icecast mount (may take a moment to appear)
-                for attempt in range(20):
+            async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=300, write=10, pool=10)) as http:
+                for attempt in range(40):
                     try:
                         async with http.stream("GET", icecast_url) as resp:
                             if resp.status_code != 200:
@@ -817,7 +816,7 @@ async def listen_stream(
                                 yield chunk
                             return
                     except (httpx.ConnectError, httpx.HTTPStatusError):
-                        if attempt < 19:
+                        if attempt < 39:
                             await asyncio.sleep(0.5)
                         else:
                             raise
