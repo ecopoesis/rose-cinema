@@ -67,22 +67,30 @@ class TrackCache:
             raise
 
     async def ensure_playlist_cached(
-        self, entries: list[dict], *, eager_count: int = 0,
+        self,
+        entries: list[dict],
+        *,
+        eager_count: int = 0,
+        max_downloads: int = 0,
     ) -> dict[str, Path]:
         songs = [
             e for e in entries
             if e.get("type") == "song" and e.get("apple_music_id")
         ]
         cached: dict[str, Path] = {}
+        downloaded = 0
 
         for i, song in enumerate(songs):
             aid = song["apple_music_id"]
             if self.is_cached(aid):
                 cached[aid] = self.path_for(aid)
                 continue
+            if max_downloads and downloaded >= max_downloads:
+                break
             try:
                 path = await self.download_track(aid)
                 cached[aid] = path
+                downloaded += 1
                 logger.info(
                     "Downloaded %d/%d: %s - %s",
                     i + 1, len(songs),

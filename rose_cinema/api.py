@@ -29,6 +29,8 @@ from rose_cinema.services.queue import EventQueue, QueueWorker, enqueue_ma_chain
 from rose_cinema.services.scheduler import CronScheduler
 from rose_cinema.services.stream_manager import StreamManager
 from rose_cinema.services.ezstream_manager import EzstreamManager
+from rose_cinema.services.track_cache import TrackCache
+from rose_cinema.services.apple_music_stream import AppleMusicStreamer
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
@@ -884,6 +886,29 @@ async def listen_native_stream(
         entry_index=entry_index,
         listened_date=today,
     ))
+
+    if settings.apple_music_user_token:
+        streamer = AppleMusicStreamer()
+        cache = TrackCache(streamer)
+        remaining = entries[entry_index:]
+        uncached = [
+            e for e in remaining
+            if e.get("type") == "song"
+            and e.get("apple_music_id")
+            and not cache.is_cached(e["apple_music_id"])
+        ]
+        if uncached:
+            await cache.ensure_playlist_cached(
+                remaining, eager_count=3, max_downloads=3,
+            )
+
+            async def _bg_download(c=cache, r=remaining):
+                try:
+                    await c.ensure_playlist_cached(r)
+                except Exception:
+                    logger.exception("Background track download failed")
+
+            asyncio.create_task(_bg_download())
 
     ez_session = await _ezstream_mgr.start_session(
         station_id=station.id,
