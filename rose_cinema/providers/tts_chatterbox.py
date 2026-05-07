@@ -90,7 +90,8 @@ class ChatterboxTTS(TTSProvider):
 
         mp3_path = output_path.with_suffix(".mp3")
         subprocess.run(
-            ["ffmpeg", "-y", "-i", str(wav_path), "-q:a", "2", str(mp3_path)],
+            ["ffmpeg", "-y", "-i", str(wav_path),
+             "-ar", "44100", "-ac", "2", "-q:a", "2", str(mp3_path)],
             capture_output=True,
             timeout=60,
         )
