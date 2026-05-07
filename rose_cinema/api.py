@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import date
 
 import httpx
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -844,6 +844,7 @@ async def listen_stream(
 @app.get("/listen-native/{station_slug}")
 async def listen_native_stream(
     station_slug: str,
+    request: Request,
     uid: str = Query(..., min_length=1, max_length=200),
     session: AsyncSession = Depends(get_session),
 ):
@@ -909,25 +910,33 @@ async def listen_native_stream(
     )
     _native_sessions[session_key] = native_session
 
+    want_icy = request.headers.get("icy-metadata") == "1"
     metaint = settings.native_stream_metaint
 
     async def generate():
         try:
-            async for chunk in native_session.stream_with_icy(metaint):
-                yield chunk
+            if want_icy:
+                async for chunk in native_session.stream_with_icy(metaint):
+                    yield chunk
+            else:
+                async for chunk in native_session.stream_plain():
+                    yield chunk
         finally:
             _native_sessions.pop(session_key, None)
+
+    headers = {
+        "icy-name": station.name,
+        "icy-br": settings.native_stream_bitrate.replace("k", ""),
+        "Cache-Control": "no-cache, no-store",
+        "Connection": "close",
+    }
+    if want_icy:
+        headers["icy-metaint"] = str(metaint)
 
     return StreamingResponse(
         generate(),
         media_type="audio/mpeg",
-        headers={
-            "icy-metaint": str(metaint),
-            "icy-name": station.name,
-            "icy-br": settings.native_stream_bitrate.replace("k", ""),
-            "Cache-Control": "no-cache, no-store",
-            "Connection": "close",
-        },
+        headers=headers,
     )
 
 
