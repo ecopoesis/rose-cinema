@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     icecast_source_password: str = Field(default="hackme")
     squeezelite_path: str = Field(default="squeezelite")
 
+    # Native streaming (direct Apple Music via Widevine)
+    apple_music_user_token: str = Field(default="")
+    widevine_cdm_dir: str = Field(default="/usr/local/bin/widevine_cdm")
+    native_stream_bitrate: str = Field(default="192k")
+    native_stream_metaint: int = Field(default=16384)
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

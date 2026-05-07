@@ -28,6 +28,8 @@ from rose_cinema.services.music_assistant import get_music_assistant_client
 from rose_cinema.services.queue import EventQueue, QueueWorker, enqueue_ma_chain
 from rose_cinema.services.scheduler import CronScheduler
 from rose_cinema.services.stream_manager import StreamManager
+from rose_cinema.services.apple_music_stream import AppleMusicStreamer
+from rose_cinema.services.native_stream import NativeStreamSession
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
@@ -44,20 +46,25 @@ logger = logging.getLogger(__name__)
 _worker: QueueWorker | None = None
 _scheduler: CronScheduler | None = None
 _stream_manager: StreamManager | None = None
+_apple_streamer: AppleMusicStreamer | None = None
+_native_sessions: dict[str, NativeStreamSession] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _worker, _scheduler, _stream_manager
+    global _worker, _scheduler, _stream_manager, _apple_streamer
     _worker = QueueWorker(async_session)
     await _worker.start()
     _scheduler = CronScheduler(async_session)
     await _scheduler.start()
     _stream_manager = StreamManager(async_session)
     await _stream_manager.start_background_tasks()
+    if settings.apple_music_user_token:
+        _apple_streamer = AppleMusicStreamer()
     yield
     await _stream_manager.shutdown()
     _stream_manager = None
+    _apple_streamer = None
     await _scheduler.stop()
     _scheduler = None
     await _worker.stop()
@@ -832,6 +839,124 @@ async def listen_stream(
             "Connection": "close",
         },
     )
+
+
+@app.get("/listen-native/{station_slug}")
+async def listen_native_stream(
+    station_slug: str,
+    uid: str = Query(..., min_length=1, max_length=200),
+    session: AsyncSession = Depends(get_session),
+):
+    if _apple_streamer is None:
+        raise HTTPException(503, "Native streaming not configured (set APPLE_MUSIC_USER_TOKEN)")
+
+    station_repo = SqlStationRepository(session)
+    station = await station_repo.get_by_slug(station_slug)
+    if not station:
+        raise HTTPException(404, "Station not found")
+
+    pos_repo = SqlListenPositionRepository(session)
+    today = date.today().isoformat()
+    position = await pos_repo.get_position(station.id, uid, today)
+
+    run_repo = SqlPlaylistRunRepository(session)
+    runs = await run_repo.list_by_station(station.id)
+    ready_runs = [r for r in runs if r.status in ("ready", "saved")]
+    if not ready_runs:
+        raise HTTPException(404, "No playlists available for this station")
+
+    if position:
+        run_id = position.run_id
+        entry_index = position.entry_index
+        run = await run_repo.get(run_id)
+        if not run or run.status not in ("ready", "saved"):
+            run_id = ready_runs[0].id
+            entry_index = 0
+    else:
+        run_id = ready_runs[0].id
+        entry_index = 0
+
+    run = await run_repo.get(run_id)
+    if not run:
+        raise HTTPException(404, "Playlist run not found")
+
+    entries = json.loads(run.playlist_json)
+
+    await pos_repo.upsert_position(ListenPositionRecord(
+        station_id=station.id,
+        uid=uid,
+        run_id=run_id,
+        entry_index=entry_index,
+        listened_date=today,
+    ))
+
+    base = settings.public_base_url.rstrip("/")
+    art_url = None
+    if station.album_art and (Path(settings.album_art_dir) / station.album_art).exists():
+        art_url = f"{base}/api/stations/{station.id}/album-art"
+
+    session_key = f"{station.id}:{uid}"
+    native_session = NativeStreamSession(
+        station_id=station.id,
+        uid=uid,
+        run_id=run_id,
+        entries=entries,
+        entry_index=entry_index,
+        station_name=station.name,
+        art_url=art_url,
+        session_factory=async_session,
+        streamer=_apple_streamer,
+    )
+    _native_sessions[session_key] = native_session
+
+    metaint = settings.native_stream_metaint
+
+    async def generate():
+        try:
+            async for chunk in native_session.stream_with_icy(metaint):
+                yield chunk
+        finally:
+            _native_sessions.pop(session_key, None)
+
+    return StreamingResponse(
+        generate(),
+        media_type="audio/mpeg",
+        headers={
+            "icy-metaint": str(metaint),
+            "icy-name": station.name,
+            "icy-br": settings.native_stream_bitrate.replace("k", ""),
+            "Cache-Control": "no-cache, no-store",
+            "Connection": "close",
+        },
+    )
+
+
+@app.get("/listen-native/{station_slug}/now-playing")
+async def native_now_playing(
+    station_slug: str,
+    uid: str = Query(..., min_length=1, max_length=200),
+    session: AsyncSession = Depends(get_session),
+):
+    station_repo = SqlStationRepository(session)
+    station = await station_repo.get_by_slug(station_slug)
+    if not station:
+        raise HTTPException(404, "Station not found")
+
+    session_key = f"{station.id}:{uid}"
+    native_session = _native_sessions.get(session_key)
+    if not native_session:
+        raise HTTPException(404, "No active stream for this station/uid")
+
+    entry = native_session.current_entry
+    return {
+        "type": entry.get("type", ""),
+        "title": entry.get("title", ""),
+        "artist": entry.get("artist", ""),
+        "album": entry.get("album", ""),
+        "artwork_url": entry.get("artwork_url", ""),
+        "entry_index": native_session.entry_index,
+        "total_entries": len(native_session.entries),
+    }
 
 
 # ── Web UI (must be mounted last so it doesn't shadow /api routes) ────

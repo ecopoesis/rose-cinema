@@ -37,6 +37,8 @@ voices = ['cori-high', 'kristin', 'bryce', 'norman', 'mv2', 'jenny']; \
 print(f'fetched {len(voices)} voices')"
 RUN cd /app/data/piper_models && python -m piper.download_voices en_US-lessac-medium
 
+COPY .keys/widevine_cdm/ /usr/local/bin/widevine_cdm/
+
 COPY rose_cinema/ rose_cinema/
 COPY alembic/ alembic/
 COPY alembic.ini .

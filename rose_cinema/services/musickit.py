@@ -183,6 +183,30 @@ class MusicKitCatalog(MusicCatalog):
         return out
 
 
+_token_signer: MusicKitTokenSigner | None = None
+
+
+def _get_token() -> str:
+    """Return a cached MusicKit developer JWT, creating the signer on first call."""
+    global _token_signer
+    if _token_signer is None:
+        cfg = settings
+        if not (cfg.musickit_team_id and cfg.musickit_key_id):
+            raise RuntimeError("MusicKit not configured (need MUSICKIT_TEAM_ID and MUSICKIT_KEY_ID)")
+        if cfg.musickit_private_key:
+            private_key = _resolve_inline_key(cfg.musickit_private_key)
+        elif cfg.musickit_private_key_path and Path(cfg.musickit_private_key_path).exists():
+            private_key = Path(cfg.musickit_private_key_path).read_text()
+        else:
+            raise RuntimeError("MusicKit private key not configured")
+        _token_signer = MusicKitTokenSigner(
+            team_id=cfg.musickit_team_id,
+            key_id=cfg.musickit_key_id,
+            private_key=private_key,
+        )
+    return _token_signer.token()
+
+
 def _resolve_inline_key(raw: str) -> str:
     """Accept either raw PEM or base64-encoded PEM (env-friendly single-line form)."""
     s = raw.strip()
