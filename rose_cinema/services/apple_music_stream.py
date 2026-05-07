@@ -175,7 +175,7 @@ class AppleMusicStreamer:
             cmd += ["-decryption_key", info.decryption_key]
         cmd += ["-i", info.stream_url]
         cmd += ["-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
-                "-write_xing", "0", "-reservoir", "0", "-f", "mp3", "pipe:1"]
+                "-write_xing", "0", "-reservoir", "0", "-id3v2_version", "0", "-f", "mp3", "pipe:1"]
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
