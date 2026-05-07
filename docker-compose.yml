@@ -29,6 +29,7 @@ services:
       - "8765:8000"
     volumes:
       - /opt/containers/rose-cinema:/app/data
+      - music-assistant_ma_data:/ma-data:ro
     environment:
       DATABASE_URL: postgresql+asyncpg://rose:${POSTGRES_PASSWORD:-rose}@postgres:5432/rose_cinema
       LLM_PROVIDER: ollama
@@ -48,5 +49,12 @@ services:
       CHATTERBOX_URL: ${CHATTERBOX_URL:-http://host.docker.internal:8004}
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-hackme}
       SQUEEZELITE_PATH: squeezelite
+      APPLE_MUSIC_USER_TOKEN: ${APPLE_MUSIC_USER_TOKEN:-}
+      MUSICBRAINZ_USER_AGENT: ${MUSICBRAINZ_USER_AGENT:-}
+      WIDEVINE_CDM_DIR: /ma-data/widevine_cdm
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+volumes:
+  music-assistant_ma_data:
+    external: true
