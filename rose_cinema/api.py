@@ -844,6 +844,7 @@ async def listen_stream(
 @app.get("/listen-native/{station_slug}")
 async def listen_native_stream(
     station_slug: str,
+    request: Request,
     uid: str = Query(..., min_length=1, max_length=200),
     session: AsyncSession = Depends(get_session),
 ):
@@ -920,13 +921,15 @@ async def listen_native_stream(
     )
 
     icecast_url = f"http://{settings.icecast_host}:{settings.icecast_port}{ez_session.mount}"
+    want_icy = request.headers.get("icy-metadata") == "1"
+    proxy_headers = {"Icy-MetaData": "1"} if want_icy else {}
 
     async def proxy_stream():
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=300, write=10, pool=10)) as http:
                 for attempt in range(40):
                     try:
-                        async with http.stream("GET", icecast_url) as resp:
+                        async with http.stream("GET", icecast_url, headers=proxy_headers) as resp:
                             if resp.status_code != 200:
                                 raise httpx.HTTPStatusError(
                                     f"Icecast returned {resp.status_code}",
@@ -943,14 +946,18 @@ async def listen_native_stream(
         finally:
             await _ezstream_mgr.stop_session(station.id, uid)
 
+    resp_headers = {
+        "icy-name": station.name,
+        "Cache-Control": "no-cache, no-store",
+        "Connection": "close",
+    }
+    if want_icy:
+        resp_headers["icy-metaint"] = "16000"
+
     return StreamingResponse(
         proxy_stream(),
         media_type="audio/mpeg",
-        headers={
-            "icy-name": station.name,
-            "Cache-Control": "no-cache, no-store",
-            "Connection": "close",
-        },
+        headers=resp_headers,
     )
 
 
