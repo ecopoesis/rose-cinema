@@ -8,6 +8,7 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from rose_cinema.config import settings
 from rose_cinema.repositories import ListenPositionRecord
 from rose_cinema.repositories.sql import SqlListenPositionRepository
 from rose_cinema.services.apple_music_stream import AppleMusicStreamer
@@ -109,12 +110,31 @@ class NativeStreamSession:
             logger.warning("DJ entry has no audio_file, skipping")
             return
         try:
-            with open(audio_file, "rb") as f:
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-hide_banner", "-loglevel", "warning",
+                "-i", audio_file,
+                "-ar", "44100", "-ac", "2",
+                "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
+                "-f", "mp3", "pipe:1",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
                 while True:
-                    chunk = f.read(8192)
+                    chunk = await proc.stdout.read(8192)
                     if not chunk:
                         break
                     yield chunk
+            finally:
+                if proc.returncode is None:
+                    proc.terminate()
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        proc.kill()
+                stderr = await proc.stderr.read()
+                if stderr and proc.returncode != 0:
+                    logger.warning("ffmpeg DJ stderr for %s: %s", audio_file, stderr.decode(errors="replace")[:500])
         except FileNotFoundError:
             logger.warning("DJ audio file not found: %s", audio_file)
 
