@@ -3,10 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import urllib.parse
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
-import httpx
 from mutagen.mp3 import MP3
 
 from rose_cinema.config import settings
@@ -23,7 +22,6 @@ class EzstreamSession:
         entries: list[dict],
         entry_index: int,
         station_name: str,
-        mount: str,
     ) -> None:
         self.station_id = station_id
         self.uid = uid
@@ -31,10 +29,9 @@ class EzstreamSession:
         self.entries = entries
         self.entry_index = entry_index
         self.station_name = station_name
-        self.mount = mount
         self._proc: asyncio.subprocess.Process | None = None
-        self._meta_task: asyncio.Task | None = None
         self._work_dir: Path | None = None
+        self._schedule: list[tuple[float, int]] = []
         self._current_entry_idx = entry_index
 
     @property
@@ -88,13 +85,7 @@ class EzstreamSession:
         work_dir.mkdir(parents=True, exist_ok=True)
         self._work_dir = work_dir
 
-        concat_file, schedule = self._build_concat_and_schedule(work_dir)
-
-        password = urllib.parse.quote(settings.icecast_source_password, safe="")
-        icecast_url = (
-            f"icecast://source:{password}"
-            f"@{settings.icecast_host}:{settings.icecast_port}{self.mount}"
-        )
+        concat_file, self._schedule = self._build_concat_and_schedule(work_dir)
 
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -103,11 +94,7 @@ class EzstreamSession:
             "-ar", "44100", "-ac", "2",
             "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
             "-write_xing", "0", "-reservoir", "0", "-id3v2_version", "0",
-            "-flush_packets", "1",
-            "-f", "mp3",
-            "-content_type", "audio/mpeg",
-            "-ice_name", self.station_name,
-            icecast_url,
+            "-f", "mp3", "pipe:1",
         ]
 
         self._proc = await asyncio.create_subprocess_exec(
@@ -116,61 +103,86 @@ class EzstreamSession:
             stderr=asyncio.subprocess.PIPE,
         )
         logger.info(
-            "Started ffmpeg→icecast pid=%d mount=%s for %s:%s",
-            self._proc.pid, self.mount, self.station_id[:8], self.uid,
+            "Started ffmpeg pid=%d for %s:%s (%d tracks)",
+            self._proc.pid, self.station_id[:8], self.uid, len(self._schedule),
         )
 
-        if schedule:
-            self._meta_task = asyncio.create_task(
-                self._update_metadata_loop(schedule),
-            )
+    def _meta_block_for_entry(self, entry_idx: int) -> bytes:
+        entry = self.entries[entry_idx] if 0 <= entry_idx < len(self.entries) else {}
+        if entry.get("type") == "song":
+            artist = entry.get("artist", "")
+            title = entry.get("title", "")
+            stream_title = f"{artist} - {title}" if artist else title
+        else:
+            stream_title = self.station_name or "DJ"
 
-    async def _update_metadata_loop(
-        self, schedule: list[tuple[float, int]],
-    ) -> None:
-        t0 = time.monotonic()
+        meta_str = f"StreamTitle='{stream_title}';"
+        raw = meta_str.encode("utf-8", errors="replace")
+        padded_len = ((len(raw) + 15) // 16) * 16
+        length_byte = min(padded_len // 16, 255)
+        return bytes([length_byte]) + raw.ljust(padded_len, b"\x00")
 
-        for start_secs, entry_idx in schedule:
-            elapsed = time.monotonic() - t0
-            wait = start_secs - elapsed
-            if wait > 0:
-                await asyncio.sleep(wait)
-
-            self._current_entry_idx = entry_idx
-            entry = self.entries[entry_idx]
-
-            if entry.get("type") == "song":
-                artist = entry.get("artist", "")
-                title = entry.get("title", "")
-                song = f"{artist} - {title}" if artist else title
+    def _current_meta_block(self, elapsed: float) -> bytes:
+        entry_idx = self._schedule[0][1] if self._schedule else self.entry_index
+        for start_secs, idx in self._schedule:
+            if elapsed >= start_secs:
+                entry_idx = idx
             else:
-                song = self.station_name
+                break
+        self._current_entry_idx = entry_idx
+        return self._meta_block_for_entry(entry_idx)
 
-            encoded_mount = urllib.parse.quote(self.mount)
-            url = (
-                f"http://{settings.icecast_host}:{settings.icecast_port}"
-                f"/admin/metadata?mount={encoded_mount}"
-                f"&mode=updinfo&song={urllib.parse.quote(song)}"
-            )
-            try:
-                async with httpx.AsyncClient(timeout=5) as client:
-                    resp = await client.get(
-                        url, auth=("admin", settings.icecast_source_password),
-                    )
-                    if resp.status_code != 200:
-                        logger.warning(
-                            "Icecast metadata update failed: %d", resp.status_code,
-                        )
-            except Exception:
-                logger.debug("Failed to update icecast metadata for %s", self.mount)
+    async def stream_with_icy(self, metaint: int) -> AsyncGenerator[bytes, None]:
+        if not self._proc or not self._proc.stdout:
+            return
+
+        t0 = time.monotonic()
+        bytes_since_meta = 0
+        meta_block = self._current_meta_block(0)
+
+        try:
+            while True:
+                chunk = await self._proc.stdout.read(8192)
+                if not chunk:
+                    break
+
+                elapsed = time.monotonic() - t0
+                meta_block = self._current_meta_block(elapsed)
+
+                pos = 0
+                while pos < len(chunk):
+                    remaining = metaint - bytes_since_meta
+                    take = min(remaining, len(chunk) - pos)
+                    yield chunk[pos : pos + take]
+                    bytes_since_meta += take
+                    pos += take
+
+                    if bytes_since_meta >= metaint:
+                        yield meta_block
+                        bytes_since_meta = 0
+        except (GeneratorExit, asyncio.CancelledError):
+            pass
+        finally:
+            await self.stop()
+
+    async def stream_plain(self) -> AsyncGenerator[bytes, None]:
+        if not self._proc or not self._proc.stdout:
+            return
+
+        t0 = time.monotonic()
+        try:
+            while True:
+                chunk = await self._proc.stdout.read(8192)
+                if not chunk:
+                    break
+                self._current_meta_block(time.monotonic() - t0)
+                yield chunk
+        except (GeneratorExit, asyncio.CancelledError):
+            pass
+        finally:
+            await self.stop()
 
     async def stop(self) -> None:
-        if self._meta_task and not self._meta_task.done():
-            self._meta_task.cancel()
-            try:
-                await self._meta_task
-            except asyncio.CancelledError:
-                pass
         if self._proc and self._proc.returncode is None:
             self._proc.terminate()
             try:
@@ -206,7 +218,6 @@ class EzstreamManager:
         if existing and existing.is_running:
             await existing.stop()
 
-        mount = f"/live-{station_id[:8]}-{uid[:16]}"
         session = EzstreamSession(
             station_id=station_id,
             uid=uid,
@@ -214,7 +225,6 @@ class EzstreamManager:
             entries=entries,
             entry_index=entry_index,
             station_name=station_name,
-            mount=mount,
         )
         await session.start()
         self._sessions[key] = session

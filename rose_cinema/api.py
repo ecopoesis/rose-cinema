@@ -920,44 +920,34 @@ async def listen_native_stream(
         station_name=station.name,
     )
 
-    icecast_url = f"http://{settings.icecast_host}:{settings.icecast_port}{ez_session.mount}"
     want_icy = request.headers.get("icy-metadata") == "1"
-    proxy_headers = {"Icy-MetaData": "1"} if want_icy else {}
+    metaint = settings.native_stream_metaint
+    session_key = f"{station.id}:{uid}"
 
-    async def proxy_stream():
+    async def generate():
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=300, write=10, pool=10)) as http:
-                for attempt in range(40):
-                    try:
-                        async with http.stream("GET", icecast_url, headers=proxy_headers) as resp:
-                            if resp.status_code != 200:
-                                raise httpx.HTTPStatusError(
-                                    f"Icecast returned {resp.status_code}",
-                                    request=resp.request, response=resp,
-                                )
-                            async for chunk in resp.aiter_bytes(chunk_size=8192):
-                                yield chunk
-                            return
-                    except (httpx.ConnectError, httpx.HTTPStatusError):
-                        if attempt < 39:
-                            await asyncio.sleep(0.5)
-                        else:
-                            raise
+            if want_icy:
+                async for chunk in ez_session.stream_with_icy(metaint):
+                    yield chunk
+            else:
+                async for chunk in ez_session.stream_plain():
+                    yield chunk
         finally:
-            await _ezstream_mgr.stop_session(station.id, uid)
+            _ezstream_mgr._sessions.pop(session_key, None)
 
-    resp_headers = {
+    headers = {
         "icy-name": station.name,
+        "icy-br": settings.native_stream_bitrate.replace("k", ""),
         "Cache-Control": "no-cache, no-store",
         "Connection": "close",
     }
     if want_icy:
-        resp_headers["icy-metaint"] = "16000"
+        headers["icy-metaint"] = str(metaint)
 
     return StreamingResponse(
-        proxy_stream(),
+        generate(),
         media_type="audio/mpeg",
-        headers=resp_headers,
+        headers=headers,
     )
 
 
