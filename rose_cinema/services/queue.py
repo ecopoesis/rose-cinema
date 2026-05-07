@@ -328,6 +328,8 @@ class QueueWorker:
             await self._maybe_finalize(session, run_id)
         elif step == "finalize_playlist":
             await self._after_finalize(session, run_id)
+        elif step == "download_tracks":
+            await self._after_download_tracks(session, run_id)
         elif step == "ma_ingest_dj":
             await self._maybe_ma_create_playlist(session, run_id)
         elif step == "ma_create_playlist":
@@ -459,6 +461,21 @@ class QueueWorker:
                 )
 
     async def _after_finalize(self, session: AsyncSession, run_id: str) -> None:
+        from rose_cinema.config import settings as cfg
+
+        run = await session.get(PlaylistRun, run_id)
+        if not run:
+            return
+
+        if cfg.apple_music_user_token:
+            await self._queue.enqueue(
+                session, run_id, "download_tracks", 0,
+                {"run_id": run_id},
+            )
+        else:
+            await self._after_download_tracks(session, run_id)
+
+    async def _after_download_tracks(self, session: AsyncSession, run_id: str) -> None:
         from rose_cinema.services.music_assistant import get_music_assistant_client
 
         run = await session.get(PlaylistRun, run_id)

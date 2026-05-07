@@ -28,8 +28,7 @@ from rose_cinema.services.music_assistant import get_music_assistant_client
 from rose_cinema.services.queue import EventQueue, QueueWorker, enqueue_ma_chain
 from rose_cinema.services.scheduler import CronScheduler
 from rose_cinema.services.stream_manager import StreamManager
-from rose_cinema.services.apple_music_stream import AppleMusicStreamer
-from rose_cinema.services.native_stream import NativeStreamSession
+from rose_cinema.services.ezstream_manager import EzstreamManager
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
@@ -46,25 +45,24 @@ logger = logging.getLogger(__name__)
 _worker: QueueWorker | None = None
 _scheduler: CronScheduler | None = None
 _stream_manager: StreamManager | None = None
-_apple_streamer: AppleMusicStreamer | None = None
-_native_sessions: dict[str, NativeStreamSession] = {}
+_ezstream_mgr: EzstreamManager | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _worker, _scheduler, _stream_manager, _apple_streamer
+    global _worker, _scheduler, _stream_manager, _ezstream_mgr
     _worker = QueueWorker(async_session)
     await _worker.start()
     _scheduler = CronScheduler(async_session)
     await _scheduler.start()
     _stream_manager = StreamManager(async_session)
     await _stream_manager.start_background_tasks()
-    if settings.apple_music_user_token:
-        _apple_streamer = AppleMusicStreamer()
+    _ezstream_mgr = EzstreamManager()
     yield
+    await _ezstream_mgr.stop_all()
+    _ezstream_mgr = None
     await _stream_manager.shutdown()
     _stream_manager = None
-    _apple_streamer = None
     await _scheduler.stop()
     _scheduler = None
     await _worker.stop()
@@ -844,13 +842,9 @@ async def listen_stream(
 @app.get("/listen-native/{station_slug}")
 async def listen_native_stream(
     station_slug: str,
-    request: Request,
     uid: str = Query(..., min_length=1, max_length=200),
     session: AsyncSession = Depends(get_session),
 ):
-    if _apple_streamer is None:
-        raise HTTPException(503, "Native streaming not configured (set APPLE_MUSIC_USER_TOKEN)")
-
     station_repo = SqlStationRepository(session)
     station = await station_repo.get_by_slug(station_slug)
     if not station:
@@ -891,52 +885,47 @@ async def listen_native_stream(
         listened_date=today,
     ))
 
-    base = settings.public_base_url.rstrip("/")
-    art_url = None
-    if station.album_art and (Path(settings.album_art_dir) / station.album_art).exists():
-        art_url = f"{base}/api/stations/{station.id}/album-art"
-
-    session_key = f"{station.id}:{uid}"
-    native_session = NativeStreamSession(
+    ez_session = await _ezstream_mgr.start_session(
         station_id=station.id,
         uid=uid,
         run_id=run_id,
         entries=entries,
         entry_index=entry_index,
         station_name=station.name,
-        art_url=art_url,
-        session_factory=async_session,
-        streamer=_apple_streamer,
     )
-    _native_sessions[session_key] = native_session
 
-    want_icy = request.headers.get("icy-metadata") == "1"
-    metaint = settings.native_stream_metaint
+    icecast_url = f"http://{settings.icecast_host}:{settings.icecast_port}{ez_session.mount}"
 
-    async def generate():
+    async def proxy_stream():
         try:
-            if want_icy:
-                async for chunk in native_session.stream_with_icy(metaint):
-                    yield chunk
-            else:
-                async for chunk in native_session.stream_plain():
-                    yield chunk
+            async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=300, write=10, pool=10)) as http:
+                for attempt in range(40):
+                    try:
+                        async with http.stream("GET", icecast_url) as resp:
+                            if resp.status_code != 200:
+                                raise httpx.HTTPStatusError(
+                                    f"Icecast returned {resp.status_code}",
+                                    request=resp.request, response=resp,
+                                )
+                            async for chunk in resp.aiter_bytes(chunk_size=8192):
+                                yield chunk
+                            return
+                    except (httpx.ConnectError, httpx.HTTPStatusError):
+                        if attempt < 39:
+                            await asyncio.sleep(0.5)
+                        else:
+                            raise
         finally:
-            _native_sessions.pop(session_key, None)
-
-    headers = {
-        "icy-name": station.name,
-        "icy-br": settings.native_stream_bitrate.replace("k", ""),
-        "Cache-Control": "no-cache, no-store",
-        "Connection": "close",
-    }
-    if want_icy:
-        headers["icy-metaint"] = str(metaint)
+            await _ezstream_mgr.stop_session(station.id, uid)
 
     return StreamingResponse(
-        generate(),
+        proxy_stream(),
         media_type="audio/mpeg",
-        headers=headers,
+        headers={
+            "icy-name": station.name,
+            "Cache-Control": "no-cache, no-store",
+            "Connection": "close",
+        },
     )
 
 
@@ -951,20 +940,19 @@ async def native_now_playing(
     if not station:
         raise HTTPException(404, "Station not found")
 
-    session_key = f"{station.id}:{uid}"
-    native_session = _native_sessions.get(session_key)
-    if not native_session:
+    ez_session = _ezstream_mgr.get_session(station.id, uid) if _ezstream_mgr else None
+    if not ez_session:
         raise HTTPException(404, "No active stream for this station/uid")
 
-    entry = native_session.current_entry
+    entry = ez_session.current_entry
     return {
         "type": entry.get("type", ""),
         "title": entry.get("title", ""),
         "artist": entry.get("artist", ""),
         "album": entry.get("album", ""),
         "artwork_url": entry.get("artwork_url", ""),
-        "entry_index": native_session.entry_index,
-        "total_entries": len(native_session.entries),
+        "entry_index": ez_session.entry_index,
+        "total_entries": len(ez_session.entries),
     }
 
 

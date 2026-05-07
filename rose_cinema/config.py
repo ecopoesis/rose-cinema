@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     native_stream_bitrate: str = Field(default="192k")
     native_stream_metaint: int = Field(default=16384)
 
+    # Track cache (pre-downloaded Apple Music files for ezstream)
+    tracks_dir: str = Field(default="data/tracks")
+    streams_dir: str = Field(default="data/streams")
+    track_download_delay: float = Field(default=3.0)
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
