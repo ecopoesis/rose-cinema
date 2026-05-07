@@ -925,15 +925,12 @@ async def listen_native_stream(
     session_key = f"{station.id}:{uid}"
 
     async def generate():
-        try:
-            if want_icy:
-                async for chunk in ez_session.stream_with_icy(metaint):
-                    yield chunk
-            else:
-                async for chunk in ez_session.stream_plain():
-                    yield chunk
-        finally:
-            _ezstream_mgr._sessions.pop(session_key, None)
+        if want_icy:
+            async for chunk in ez_session.stream_with_icy(metaint):
+                yield chunk
+        else:
+            async for chunk in ez_session.stream_plain():
+                yield chunk
 
     headers = {
         "icy-name": station.name,

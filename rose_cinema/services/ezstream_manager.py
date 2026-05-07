@@ -33,6 +33,7 @@ class EzstreamSession:
         self._work_dir: Path | None = None
         self._schedule: list[tuple[float, int]] = []
         self._current_entry_idx = entry_index
+        self._readers = 0
 
     @property
     def current_entry(self) -> dict:
@@ -136,6 +137,7 @@ class EzstreamSession:
         if not self._proc or not self._proc.stdout:
             return
 
+        self._readers += 1
         t0 = time.monotonic()
         bytes_since_meta = 0
         meta_block = self._current_meta_block(0)
@@ -163,12 +165,15 @@ class EzstreamSession:
         except (GeneratorExit, asyncio.CancelledError):
             pass
         finally:
-            await self.stop()
+            self._readers -= 1
+            if self._readers <= 0:
+                await self.stop()
 
     async def stream_plain(self) -> AsyncGenerator[bytes, None]:
         if not self._proc or not self._proc.stdout:
             return
 
+        self._readers += 1
         t0 = time.monotonic()
         try:
             while True:
@@ -180,7 +185,9 @@ class EzstreamSession:
         except (GeneratorExit, asyncio.CancelledError):
             pass
         finally:
-            await self.stop()
+            self._readers -= 1
+            if self._readers <= 0:
+                await self.stop()
 
     async def stop(self) -> None:
         if self._proc and self._proc.returncode is None:
@@ -216,7 +223,7 @@ class EzstreamManager:
 
         existing = self._sessions.get(key)
         if existing and existing.is_running:
-            await existing.stop()
+            return existing
 
         session = EzstreamSession(
             station_id=station_id,
