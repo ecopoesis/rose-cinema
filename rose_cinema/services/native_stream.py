@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import date
@@ -35,8 +36,16 @@ class NativeStreamSession:
     def current_entry(self) -> dict:
         return self._current_entry
 
+    async def _pace(self, audio_bytes: int, t0: float) -> None:
+        bps = int(settings.native_stream_bitrate.replace("k", "")) * 125
+        ahead = (audio_bytes / bps) - (time.monotonic() - t0)
+        if ahead > 15:
+            await asyncio.sleep(ahead - 15)
+
     async def stream_with_icy(self, metaint: int) -> AsyncGenerator[bytes, None]:
         bytes_since_meta = 0
+        audio_bytes = 0
+        t0 = time.monotonic()
         meta_block = b"\x00"
 
         try:
@@ -62,11 +71,13 @@ class NativeStreamSession:
                         take = min(remaining, len(audio_chunk) - pos)
                         yield audio_chunk[pos : pos + take]
                         bytes_since_meta += take
+                        audio_bytes += take
                         pos += take
 
                         if bytes_since_meta >= metaint:
                             yield meta_block
                             bytes_since_meta = 0
+                            await self._pace(audio_bytes, t0)
 
                 await self._save_position()
                 logger.info(
@@ -80,6 +91,9 @@ class NativeStreamSession:
             await self._save_position()
 
     async def stream_plain(self) -> AsyncGenerator[bytes, None]:
+        audio_bytes = 0
+        t0 = time.monotonic()
+
         try:
             for idx in range(self.entry_index, len(self.entries)):
                 if self._cancelled:
@@ -96,6 +110,9 @@ class NativeStreamSession:
                 )
                 async for chunk in source:
                     yield chunk
+                    audio_bytes += len(chunk)
+                    if audio_bytes % (8192 * 4) < len(chunk):
+                        await self._pace(audio_bytes, t0)
 
                 await self._save_position()
         except (GeneratorExit, asyncio.CancelledError):
@@ -112,7 +129,7 @@ class NativeStreamSession:
         try:
             proc = await asyncio.create_subprocess_exec(
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
-                "-re", "-i", audio_file,
+                "-i", audio_file,
                 "-ar", "44100", "-ac", "2",
                 "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
                 "-write_xing", "0", "-reservoir", "0", "-id3v2_version", "0", "-f", "mp3", "pipe:1",

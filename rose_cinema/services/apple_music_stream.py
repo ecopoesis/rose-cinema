@@ -173,7 +173,7 @@ class AppleMusicStreamer:
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
         if info.is_encrypted and info.decryption_key:
             cmd += ["-decryption_key", info.decryption_key]
-        cmd += ["-re", "-i", info.stream_url]
+        cmd += ["-i", info.stream_url]
         cmd += ["-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
                 "-write_xing", "0", "-reservoir", "0", "-id3v2_version", "0", "-f", "mp3", "pipe:1"]
 
