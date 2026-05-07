@@ -937,6 +937,7 @@ async def listen_native_stream(
         "icy-br": settings.native_stream_bitrate.replace("k", ""),
         "Cache-Control": "no-cache, no-store",
         "Connection": "close",
+        "Content-Length": str(2**63 - 1),
     }
     if want_icy:
         headers["icy-metaint"] = str(metaint)
