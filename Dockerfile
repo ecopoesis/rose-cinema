@@ -15,7 +15,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     icecast2 \
-    ezstream \
     curl \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
