@@ -35,6 +35,7 @@ class EzstreamSession:
         self._current_entry_idx = entry_index
         self._subscribers: list[asyncio.Queue[bytes | None]] = []
         self._pump_task: asyncio.Task[None] | None = None
+        self._stop_timer: asyncio.Task[None] | None = None
 
     @property
     def current_entry(self) -> dict:
@@ -155,6 +156,9 @@ class EzstreamSession:
         return self._meta_block_for_entry(entry_idx)
 
     def _subscribe(self) -> asyncio.Queue[bytes | None]:
+        if self._stop_timer and not self._stop_timer.done():
+            self._stop_timer.cancel()
+            self._stop_timer = None
         q: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=512)
         self._subscribers.append(q)
         return q
@@ -164,6 +168,11 @@ class EzstreamSession:
             self._subscribers.remove(q)
         except ValueError:
             pass
+
+    async def _delayed_stop(self) -> None:
+        await asyncio.sleep(10)
+        if not self._subscribers:
+            await self.stop()
 
     async def stream_with_icy(self, metaint: int) -> AsyncGenerator[bytes, None]:
         if not self._proc:
@@ -199,7 +208,7 @@ class EzstreamSession:
         finally:
             self._unsubscribe(q)
             if not self._subscribers:
-                await self.stop()
+                self._stop_timer = asyncio.create_task(self._delayed_stop())
 
     async def stream_plain(self) -> AsyncGenerator[bytes, None]:
         if not self._proc:
@@ -219,7 +228,7 @@ class EzstreamSession:
         finally:
             self._unsubscribe(q)
             if not self._subscribers:
-                await self.stop()
+                self._stop_timer = asyncio.create_task(self._delayed_stop())
 
     async def stop(self) -> None:
         if self._pump_task and not self._pump_task.done():
