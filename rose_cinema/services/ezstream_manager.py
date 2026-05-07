@@ -33,7 +33,8 @@ class EzstreamSession:
         self._work_dir: Path | None = None
         self._schedule: list[tuple[float, int]] = []
         self._current_entry_idx = entry_index
-        self._readers = 0
+        self._subscribers: list[asyncio.Queue[bytes | None]] = []
+        self._pump_task: asyncio.Task[None] | None = None
 
     @property
     def current_entry(self) -> dict:
@@ -103,10 +104,30 @@ class EzstreamSession:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
+        self._pump_task = asyncio.create_task(self._pump())
         logger.info(
             "Started ffmpeg pid=%d for %s:%s (%d tracks)",
             self._proc.pid, self.station_id[:8], self.uid, len(self._schedule),
         )
+
+    async def _pump(self) -> None:
+        assert self._proc and self._proc.stdout
+        try:
+            while True:
+                chunk = await self._proc.stdout.read(8192)
+                if not chunk:
+                    break
+                for q in list(self._subscribers):
+                    try:
+                        q.put_nowait(chunk)
+                    except asyncio.QueueFull:
+                        pass
+        finally:
+            for q in list(self._subscribers):
+                try:
+                    q.put_nowait(None)
+                except asyncio.QueueFull:
+                    pass
 
     def _meta_block_for_entry(self, entry_idx: int) -> bytes:
         entry = self.entries[entry_idx] if 0 <= entry_idx < len(self.entries) else {}
@@ -133,19 +154,30 @@ class EzstreamSession:
         self._current_entry_idx = entry_idx
         return self._meta_block_for_entry(entry_idx)
 
+    def _subscribe(self) -> asyncio.Queue[bytes | None]:
+        q: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=512)
+        self._subscribers.append(q)
+        return q
+
+    def _unsubscribe(self, q: asyncio.Queue[bytes | None]) -> None:
+        try:
+            self._subscribers.remove(q)
+        except ValueError:
+            pass
+
     async def stream_with_icy(self, metaint: int) -> AsyncGenerator[bytes, None]:
-        if not self._proc or not self._proc.stdout:
+        if not self._proc:
             return
 
-        self._readers += 1
+        q = self._subscribe()
         t0 = time.monotonic()
         bytes_since_meta = 0
         meta_block = self._current_meta_block(0)
 
         try:
             while True:
-                chunk = await self._proc.stdout.read(8192)
-                if not chunk:
+                chunk = await q.get()
+                if chunk is None:
                     break
 
                 elapsed = time.monotonic() - t0
@@ -165,31 +197,37 @@ class EzstreamSession:
         except (GeneratorExit, asyncio.CancelledError):
             pass
         finally:
-            self._readers -= 1
-            if self._readers <= 0:
+            self._unsubscribe(q)
+            if not self._subscribers:
                 await self.stop()
 
     async def stream_plain(self) -> AsyncGenerator[bytes, None]:
-        if not self._proc or not self._proc.stdout:
+        if not self._proc:
             return
 
-        self._readers += 1
+        q = self._subscribe()
         t0 = time.monotonic()
         try:
             while True:
-                chunk = await self._proc.stdout.read(8192)
-                if not chunk:
+                chunk = await q.get()
+                if chunk is None:
                     break
                 self._current_meta_block(time.monotonic() - t0)
                 yield chunk
         except (GeneratorExit, asyncio.CancelledError):
             pass
         finally:
-            self._readers -= 1
-            if self._readers <= 0:
+            self._unsubscribe(q)
+            if not self._subscribers:
                 await self.stop()
 
     async def stop(self) -> None:
+        if self._pump_task and not self._pump_task.done():
+            self._pump_task.cancel()
+            try:
+                await self._pump_task
+            except asyncio.CancelledError:
+                pass
         if self._proc and self._proc.returncode is None:
             self._proc.terminate()
             try:
