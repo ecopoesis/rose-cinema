@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import httpx
 from openai import AsyncOpenAI
 
 from rose_cinema.providers import LLMMessage, LLMProvider
@@ -18,7 +19,10 @@ class OpenAICompatibleLLM(LLMProvider):
     """
 
     def __init__(self, base_url: str, api_key: str, model: str):
-        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+        self._client = AsyncOpenAI(
+            base_url=base_url, api_key=api_key,
+            timeout=httpx.Timeout(timeout=1800.0, connect=30.0),
+        )
         self._model = model
 
     async def complete(
