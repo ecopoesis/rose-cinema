@@ -223,7 +223,8 @@ class TrackPicker:
             "- title, artist: required, real songs only\n"
             "- album, year: include if you are confident; otherwise empty string\n"
             "- duration_secs: a reasonable integer (typical 150-360)\n"
-            "Do not invent songs that do not exist. Do not add commentary."
+            "Do not invent songs that do not exist. Do not add commentary.\n"
+            "Output compact single-line JSON with no extra whitespace or code fences."
         )
         user = (
             f"Seed: {music_source}\n"
@@ -234,7 +235,7 @@ class TrackPicker:
         raw = await self._llm.complete(
             messages=[LLMMessage("system", system), LLMMessage("user", user)],
             temperature=0.6,
-            max_tokens=2000,
+            max_tokens=4000,
         )
         logger.debug("TrackPicker raw output: %s", raw)
 
