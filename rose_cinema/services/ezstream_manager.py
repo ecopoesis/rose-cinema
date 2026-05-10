@@ -94,6 +94,7 @@ class EzstreamSession:
             "ffmpeg", "-hide_banner", "-loglevel", "warning",
             "-re",
             "-f", "concat", "-safe", "0", "-i", str(concat_file),
+            "-af", "loudnorm=I=-14:TP=-1:LRA=11",
             "-ar", "44100", "-ac", "2",
             "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
             "-write_xing", "0", "-reservoir", "0", "-id3v2_version", "0",
