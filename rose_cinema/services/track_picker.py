@@ -235,7 +235,7 @@ class TrackPicker:
         raw = await self._llm.complete(
             messages=[LLMMessage("system", system), LLMMessage("user", user)],
             temperature=0.6,
-            max_tokens=4000,
+            max_tokens=8000,
         )
         logger.debug("TrackPicker raw output: %s", raw)
 

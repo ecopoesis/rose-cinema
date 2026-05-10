@@ -35,6 +35,7 @@ class OpenAICompatibleLLM(LLMProvider):
                 messages=oai_messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                extra_body={"think": False},
             )
             return response.choices[0].message.content or ""
         except Exception:
