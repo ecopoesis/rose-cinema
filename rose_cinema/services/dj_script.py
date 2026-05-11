@@ -113,7 +113,7 @@ class DJScriptService:
         return await self._llm.complete(
             messages=[LLMMessage("system", system), LLMMessage("user", user)],
             temperature=0.9,
-            max_tokens=1500,
+            max_tokens=4000,
         )
 
     async def generate_transition(
@@ -153,7 +153,7 @@ class DJScriptService:
         return await self._llm.complete(
             messages=[LLMMessage("system", system), LLMMessage("user", user)],
             temperature=0.85,
-            max_tokens=1500,
+            max_tokens=4000,
         )
 
     def should_talk(self, talk_rate: float) -> bool:

@@ -405,6 +405,12 @@ class QueueWorker:
         result = completed.result or {}
         payload = completed.payload or {}
 
+        script = (result.get("script") or "").strip()
+        if not script:
+            logger.warning("Empty script from %s — skipping %s", completed.step_type, synth_type)
+            await self._maybe_finalize(session, run_id)
+            return
+
         run = await session.get(PlaylistRun, run_id)
         if not run:
             return
@@ -414,7 +420,7 @@ class QueueWorker:
             return
 
         synth_payload = {
-            "script": result["script"],
+            "script": script,
             "dj_id": dj.id,
             "tts_provider": dj.tts_provider,
             "tts_voice_id": dj.tts_voice_id,
