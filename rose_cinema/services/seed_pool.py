@@ -313,7 +313,7 @@ class SeedPoolBuilder:
         try:
             raw = await self._llm.complete(
                 messages=[LLMMessage("system", system), LLMMessage("user", user)],
-                temperature=0.3, max_tokens=300,
+                temperature=0.3, max_tokens=1500,
             )
             obj = json.loads(_extract_json_object(raw))
         except Exception:
@@ -574,7 +574,7 @@ class SeedPoolBuilder:
         try:
             raw = await self._llm.complete(
                 messages=[LLMMessage("system", system), LLMMessage("user", user)],
-                temperature=0.4, max_tokens=120,
+                temperature=0.4, max_tokens=1500,
             )
         except Exception:
             logger.exception("LLM theme→genre call failed")

@@ -143,7 +143,7 @@ class TrackPicker:
         raw = await self._llm.complete(
             messages=[LLMMessage("system", system), LLMMessage("user", user)],
             temperature=0.85,
-            max_tokens=600,
+            max_tokens=2000,
         )
         logger.debug("TrackPicker pool curation raw: %s", raw)
 
