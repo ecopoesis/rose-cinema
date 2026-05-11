@@ -8,9 +8,12 @@ from croniter import croniter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from rose_cinema.config import settings
 from rose_cinema.models import PlaylistRun, Station
 from rose_cinema.repositories import PlaylistRunRecord
 from rose_cinema.repositories.sql import SqlPlaylistRunRepository
+from rose_cinema.services.cleanup import trim_station_runs
+from rose_cinema.services.music_assistant import get_music_assistant_client
 from rose_cinema.services.queue import EventQueue
 
 logger = logging.getLogger(__name__)
@@ -21,6 +24,8 @@ class CronScheduler:
         self._sf = session_factory
         self._task: asyncio.Task | None = None
         self._running = False
+
+    _last_cleanup_date: str = ""
 
     async def start(self) -> None:
         self._running = True
@@ -48,16 +53,24 @@ class CronScheduler:
     async def _tick(self) -> None:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         async with self._sf() as session:
-            result = await session.execute(
-                select(Station).where(Station.cron_schedule.isnot(None))
-            )
+            result = await session.execute(select(Station))
             stations = result.scalars().all()
 
         for station in stations:
             try:
-                await self._check_station(station, now)
+                if station.cron_schedule:
+                    await self._check_station(station, now)
             except Exception:
                 logger.exception("Cron check failed for station %s", station.id[:8])
+
+        today = now.strftime("%Y-%m-%d")
+        if today != self._last_cleanup_date:
+            self._last_cleanup_date = today
+            for station in stations:
+                try:
+                    await self._cleanup_station(station)
+                except Exception:
+                    logger.exception("Cleanup failed for station %s", station.id[:8])
 
     async def _check_station(self, station: Station, now: datetime) -> None:
         schedule = (station.cron_schedule or "").strip()
@@ -123,3 +136,14 @@ class CronScheduler:
                 },
             )
             await session.commit()
+
+    async def _cleanup_station(self, station: Station) -> None:
+        if station.max_playlists <= 0:
+            return
+        async with self._sf() as session:
+            run_repo = SqlPlaylistRunRepository(session)
+            ma_client = get_music_assistant_client()
+            await trim_station_runs(
+                station.id, station.max_playlists,
+                run_repo, settings.dj_audio_dir, ma_client,
+            )

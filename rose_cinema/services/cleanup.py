@@ -33,7 +33,7 @@ async def cleanup_run(
                     path.unlink()
                     logger.info("Deleted DJ audio: %s", path)
 
-    await run_repo.delete(run.id)
+    await run_repo.soft_delete(run.id)
 
 
 async def trim_station_runs(
@@ -45,9 +45,22 @@ async def trim_station_runs(
 ) -> None:
     if max_playlists <= 0:
         return
-    runs = await run_repo.list_by_station(station_id)
-    if len(runs) <= max_playlists:
+    runs = await run_repo.list_by_station(station_id, include_deleted=True)
+    real_runs = [r for r in runs if r.status in ("ready", "saved")]
+    if len(real_runs) <= max_playlists:
         return
-    for old_run in runs[max_playlists:]:
+
+    for old_run in real_runs[max_playlists:]:
         await cleanup_run(old_run, run_repo, audio_dir, ma_client)
         logger.info("Trimmed old run %s for station %s", old_run.id, station_id)
+
+    deleted_runs = [r for r in runs if r.status == "deleted"]
+    if not deleted_runs:
+        return
+    newest_deleted_at = deleted_runs[0].created_at
+    if not newest_deleted_at:
+        return
+    for fr in runs:
+        if fr.status == "failed" and fr.created_at and fr.created_at < newest_deleted_at:
+            await cleanup_run(fr, run_repo, audio_dir, ma_client)
+            logger.info("Cleaned up old failed run %s for station %s", fr.id, station_id)

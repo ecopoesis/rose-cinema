@@ -231,12 +231,11 @@ class SqlPlaylistRunRepository(PlaylistRunRepository):
         obj = await self._session.get(PlaylistRun, run_id)
         return _run_to_record(obj) if obj else None
 
-    async def list_by_station(self, station_id: str) -> list[PlaylistRunRecord]:
-        result = await self._session.execute(
-            select(PlaylistRun)
-            .where(PlaylistRun.station_id == station_id)
-            .order_by(PlaylistRun.created_at.desc())
-        )
+    async def list_by_station(self, station_id: str, *, include_deleted: bool = False) -> list[PlaylistRunRecord]:
+        q = select(PlaylistRun).where(PlaylistRun.station_id == station_id)
+        if not include_deleted:
+            q = q.where(PlaylistRun.status != "deleted")
+        result = await self._session.execute(q.order_by(PlaylistRun.created_at.desc()))
         return [_run_to_record(r) for r in result.scalars().all()]
 
     async def list_recent_track_ids(self, station_id: str, max_runs: int = 3) -> set[str]:
@@ -293,6 +292,14 @@ class SqlPlaylistRunRepository(PlaylistRunRepository):
         if not obj:
             return False
         await self._session.delete(obj)
+        await self._session.commit()
+        return True
+
+    async def soft_delete(self, run_id: str) -> bool:
+        obj = await self._session.get(PlaylistRun, run_id)
+        if not obj:
+            return False
+        obj.status = "deleted"
         await self._session.commit()
         return True
 
