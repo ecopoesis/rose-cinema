@@ -454,6 +454,31 @@ async def handle_ma_cleanup(payload: dict) -> dict:
     return {"trimmed": True}
 
 
+async def handle_cache_tracks(payload: dict) -> dict:
+    """Download-only: cache tracks as .m4a without triggering the MA chain."""
+    run = await _load_run(payload["run_id"])
+    entries = json.loads(run.playlist_json) if run.playlist_json else []
+    songs = [e for e in entries if e.get("type") == "song" and e.get("apple_music_id")]
+    if not songs:
+        return {"downloaded": 0, "failed": 0}
+
+    from rose_cinema.database import async_session
+    from rose_cinema.services.apple_music_stream import AppleMusicStreamer
+    from rose_cinema.services.track_cache import TrackCache
+
+    streamer = AppleMusicStreamer()
+    cache = TrackCache(streamer, async_session)
+    cached = await cache.ensure_playlist_cached(entries)
+
+    downloaded = len(cached)
+    failed = len(songs) - downloaded
+    logger.info(
+        "cache_tracks: %d downloaded, %d failed for run %s",
+        downloaded, failed, payload["run_id"][:8],
+    )
+    return {"downloaded": downloaded, "failed": failed}
+
+
 HANDLERS: dict[str, Callable[[dict], Awaitable[dict]]] = {
     "pick_tracks": handle_pick_tracks,
     "generate_intro_script": handle_generate_intro_script,
@@ -466,4 +491,5 @@ HANDLERS: dict[str, Callable[[dict], Awaitable[dict]]] = {
     "ma_add_tracks": handle_ma_add_tracks,
     "ma_cleanup": handle_ma_cleanup,
     "download_tracks": handle_download_tracks,
+    "cache_tracks": handle_cache_tracks,
 }

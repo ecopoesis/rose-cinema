@@ -67,9 +67,9 @@ async def _enqueue_track_downloads() -> None:
             )
             runs = result.scalars().all()
             for run in runs:
-                await queue.enqueue(session, run.id, "download_tracks", 0, {"run_id": run.id})
+                await queue.enqueue(session, run.id, "cache_tracks", 0, {"run_id": run.id})
             await session.commit()
-        logger.info("Enqueued download_tracks for %d existing runs", len(runs))
+        logger.info("Enqueued cache_tracks for %d existing runs", len(runs))
     except Exception:
         logger.exception("Failed to enqueue track downloads")
 
