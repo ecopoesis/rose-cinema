@@ -31,6 +31,7 @@ from rose_cinema.services.stream_manager import StreamManager
 from rose_cinema.services.ezstream_manager import EzstreamManager
 from rose_cinema.services.track_cache import TrackCache
 from rose_cinema.services.apple_music_stream import AppleMusicStreamer
+from rose_cinema.services.musickit import get_music_catalog
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
@@ -563,7 +564,6 @@ async def test_playlist(
     import time as _time
 
     from rose_cinema.providers.factory import get_llm_provider
-    from rose_cinema.services.musickit import get_music_catalog
     from rose_cinema.services.musicbrainz import get_musicbrainz_client
     from rose_cinema.services.seed_pool import SeedPoolBuilder
     from rose_cinema.services.track_picker import TrackPicker
@@ -968,7 +968,7 @@ async def listen_native_stream(
     cached_paths: dict[str, Path] = {}
     if settings.apple_music_user_token:
         streamer = AppleMusicStreamer()
-        cache = TrackCache(streamer, async_session)
+        cache = TrackCache(streamer, async_session, catalog=get_music_catalog())
         remaining = entries[entry_index:]
         song_ids = [
             e["apple_music_id"] for e in remaining

@@ -7,12 +7,15 @@ import re
 import tempfile
 from pathlib import Path
 
+import httpx
+from mutagen.mp4 import MP4, MP4Cover
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from rose_cinema.config import settings
 from rose_cinema.repositories import CachedTrackRecord
 from rose_cinema.repositories.sql import SqlCachedTrackRepository
 from rose_cinema.services.apple_music_stream import AppleMusicStreamer
+from rose_cinema.services.catalog import MusicCatalog
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +37,106 @@ def _picard_path(
     return f"{safe_artist} - ({safe_year}) {safe_album}/{num} - {safe_title}.m4a"
 
 
+async def _fetch_artwork(artwork_obj: dict) -> bytes | None:
+    url_template = artwork_obj.get("url", "")
+    if not url_template:
+        return None
+    url = url_template.replace("{w}", "600").replace("{h}", "600")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.content
+    except Exception:
+        logger.warning("Failed to fetch artwork from %s", url[:80])
+        return None
+
+
+async def _tag_m4a(
+    path: Path,
+    apple_music_id: str,
+    catalog: MusicCatalog | None,
+    basic_meta: dict,
+) -> None:
+    attrs: dict = {}
+    if catalog:
+        try:
+            attrs = await catalog.get_song(apple_music_id)
+        except Exception:
+            logger.warning("Failed to fetch full metadata for %s", apple_music_id)
+
+    audio = MP4(str(path))
+    if audio.tags is None:
+        audio.add_tags()
+
+    title = attrs.get("name") or basic_meta.get("title", "")
+    artist = attrs.get("artistName") or basic_meta.get("artist", "")
+    album = attrs.get("albumName") or basic_meta.get("album", "")
+    year = (attrs.get("releaseDate") or basic_meta.get("year", ""))[:4]
+    track_num = attrs.get("trackNumber") or basic_meta.get("track_number", 0)
+
+    if title:
+        audio.tags["\xa9nam"] = [title]
+    if artist:
+        audio.tags["\xa9ART"] = [artist]
+    if album:
+        audio.tags["\xa9alb"] = [album]
+    if year:
+        audio.tags["\xa9day"] = [year]
+    if track_num:
+        track_total = attrs.get("trackCount", 0) or 0
+        audio.tags["trkn"] = [(track_num, track_total)]
+
+    disc_num = attrs.get("discNumber", 0) or 0
+    if disc_num:
+        audio.tags["disk"] = [(disc_num, 0)]
+
+    composer = attrs.get("composerName") or ""
+    if composer:
+        audio.tags["\xa9wrt"] = [composer]
+
+    genres = attrs.get("genreNames") or []
+    if genres:
+        audio.tags["\xa9gen"] = [genres[0]]
+
+    copyright_text = attrs.get("copyright") or ""
+    if copyright_text:
+        audio.tags["cprt"] = [copyright_text]
+
+    album_artist = attrs.get("artistName") or ""
+    if album_artist:
+        audio.tags["aART"] = [album_artist]
+
+    content_rating = attrs.get("contentRating") or ""
+    if content_rating == "explicit":
+        audio.tags["rtng"] = [1]
+
+    artwork_obj = attrs.get("artwork") or {}
+    if artwork_obj:
+        art_data = await _fetch_artwork(artwork_obj)
+        if art_data:
+            fmt = MP4Cover.FORMAT_JPEG
+            if art_data[:8] == b"\x89PNG\r\n\x1a\n":
+                fmt = MP4Cover.FORMAT_PNG
+            audio.tags["covr"] = [MP4Cover(art_data, imageformat=fmt)]
+
+    audio.save()
+    logger.info("Tagged %s with Apple Music metadata", path.name)
+
+
 class TrackCache:
     def __init__(
         self,
         streamer: AppleMusicStreamer,
         session_factory: async_sessionmaker[AsyncSession],
+        catalog: MusicCatalog | None = None,
     ) -> None:
         self._streamer = streamer
         self._dir = Path(settings.tracks_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._delay = settings.track_download_delay
         self._sf = session_factory
+        self._catalog = catalog
 
     async def path_for(self, apple_music_id: str) -> Path | None:
         async with self._sf() as session:
@@ -120,6 +212,14 @@ class TrackCache:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             raise
+
+        try:
+            await _tag_m4a(dest, apple_music_id, self._catalog, {
+                "title": title, "artist": artist, "album": album,
+                "year": year, "track_number": track_number,
+            })
+        except Exception:
+            logger.warning("Failed to tag %s, file saved without metadata", dest.name)
 
         async with self._sf() as session:
             repo = SqlCachedTrackRepository(session)

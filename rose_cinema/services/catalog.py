@@ -52,3 +52,6 @@ class MusicCatalog(ABC):
 
     @abstractmethod
     async def get_genre_top_songs(self, genre_id: str, limit: int = 30) -> list[CatalogTrack]: ...
+
+    @abstractmethod
+    async def get_song(self, song_id: str) -> dict: ...

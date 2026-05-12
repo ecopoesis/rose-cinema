@@ -418,10 +418,11 @@ async def handle_download_tracks(payload: dict) -> dict:
 
     from rose_cinema.database import async_session
     from rose_cinema.services.apple_music_stream import AppleMusicStreamer
+    from rose_cinema.services.musickit import get_music_catalog
     from rose_cinema.services.track_cache import TrackCache
 
     streamer = AppleMusicStreamer()
-    cache = TrackCache(streamer, async_session)
+    cache = TrackCache(streamer, async_session, catalog=get_music_catalog())
     cached = await cache.ensure_playlist_cached(entries)
 
     downloaded = len(cached)
@@ -464,10 +465,11 @@ async def handle_cache_tracks(payload: dict) -> dict:
 
     from rose_cinema.database import async_session
     from rose_cinema.services.apple_music_stream import AppleMusicStreamer
+    from rose_cinema.services.musickit import get_music_catalog
     from rose_cinema.services.track_cache import TrackCache
 
     streamer = AppleMusicStreamer()
-    cache = TrackCache(streamer, async_session)
+    cache = TrackCache(streamer, async_session, catalog=get_music_catalog())
     cached = await cache.ensure_playlist_cached(entries)
 
     downloaded = len(cached)

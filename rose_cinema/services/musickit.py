@@ -154,6 +154,13 @@ class MusicKitCatalog(MusicCatalog):
         ]
         return CatalogArtistViews(artist=seed, top_songs=top, similar_artists=sim)
 
+    async def get_song(self, song_id: str) -> dict:
+        body = await self._get(f"/catalog/{self._storefront}/songs/{song_id}")
+        data = body.get("data") or []
+        if not data:
+            return {}
+        return data[0].get("attributes") or {}
+
     async def list_genres(self) -> dict[str, str]:
         if self._genres_cache is not None:
             return self._genres_cache
