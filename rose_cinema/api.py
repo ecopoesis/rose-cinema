@@ -486,6 +486,51 @@ async def get_run_events(run_id: str, session: AsyncSession = Depends(get_sessio
     ]
 
 
+@app.get("/api/queue")
+async def get_queue_status(
+    status: str | None = Query(None),
+    step_type: str | None = Query(None),
+    limit: int = Query(100, le=500),
+    session: AsyncSession = Depends(get_session),
+):
+    from sqlalchemy import select, func
+    from rose_cinema.models import GenerationEvent
+
+    count_q = select(
+        GenerationEvent.step_type,
+        GenerationEvent.status,
+        func.count().label("count"),
+    ).group_by(GenerationEvent.step_type, GenerationEvent.status)
+    count_result = await session.execute(count_q)
+    summary = [
+        {"step_type": r.step_type, "status": r.status, "count": r.count}
+        for r in count_result.all()
+    ]
+
+    events_q = select(GenerationEvent).order_by(GenerationEvent.created_at.desc()).limit(limit)
+    if status:
+        events_q = events_q.where(GenerationEvent.status == status)
+    if step_type:
+        events_q = events_q.where(GenerationEvent.step_type == step_type)
+    events_result = await session.execute(events_q)
+    events = [
+        {
+            "id": e.id,
+            "run_id": e.run_id,
+            "step_type": e.step_type,
+            "status": e.status,
+            "error_message": e.error_message,
+            "retry_count": e.retry_count,
+            "created_at": str(e.created_at) if e.created_at else None,
+            "started_at": str(e.started_at) if e.started_at else None,
+            "completed_at": str(e.completed_at) if e.completed_at else None,
+        }
+        for e in events_result.scalars().all()
+    ]
+
+    return {"summary": summary, "events": events}
+
+
 @app.delete("/api/runs/{run_id}", status_code=204)
 async def delete_run(run_id: str, session: AsyncSession = Depends(get_session)):
     run_repo = SqlPlaylistRunRepository(session)
