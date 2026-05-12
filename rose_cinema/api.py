@@ -62,7 +62,7 @@ async def _enqueue_track_downloads() -> None:
         async with async_session() as session:
             result = await session.execute(
                 sa_select(PlaylistRun).where(
-                    PlaylistRun.status.in_(["ready", "saved"])
+                    PlaylistRun.status.in_(["ready", "saved", "failed"])
                 )
             )
             runs = result.scalars().all()
