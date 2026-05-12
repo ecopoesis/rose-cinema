@@ -35,6 +35,7 @@ class StationRecord:
     album_art: str = ""
     cron_schedule: str | None = None
     discovery_rate: float = 0.5
+    history_runs: int = 3
     slug: str = ""
 
 

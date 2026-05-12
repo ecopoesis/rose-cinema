@@ -198,6 +198,7 @@ async def create_station(
         max_playlists=body.max_playlists,
         dj_id=body.dj_id,
         music_source=body.music_source,
+        history_runs=body.history_runs,
     ))
     return StationResponse(**record.__dict__)
 
@@ -215,7 +216,7 @@ async def update_station(
         "name", "description", "length_minutes", "dj_talk_rate",
         "dj_babble_rate", "dj_max_length_secs", "max_playlists", "dj_id", "music_source",
         "source_artists", "source_albums", "source_tracks",
-        "cron_schedule", "discovery_rate",
+        "cron_schedule", "discovery_rate", "history_runs",
     ):
         val = getattr(body, field_name)
         if val is not None:
@@ -329,7 +330,10 @@ async def generate_playlist(
     run = await run_repo.create(PlaylistRunRecord(station_id=station.id, status="generating"))
     logger.info("[%s] Starting generation for station '%s' (DJ: %s)", station.id[:8], station.name, dj.name)
 
-    exclude_ids = list(await run_repo.list_recent_track_ids(station.id, max_runs=3))
+    exclude_ids = (
+        list(await run_repo.list_recent_track_ids(station.id, max_runs=station.history_runs))
+        if station.history_runs > 0 else []
+    )
 
     songs_override = None
     if body.songs:
@@ -501,7 +505,10 @@ async def test_playlist(
     seed_builder = SeedPoolBuilder(catalog, llm, mb_client) if catalog else None
 
     run_repo = SqlPlaylistRunRepository(session)
-    exclude_ids = set(await run_repo.list_recent_track_ids(station_id, max_runs=3))
+    exclude_ids = (
+        set(await run_repo.list_recent_track_ids(station_id, max_runs=station.history_runs))
+        if station.history_runs > 0 else set()
+    )
 
     songs = await TrackPicker(llm, catalog, seed_builder).pick(
         music_source=station.music_source,
@@ -655,7 +662,7 @@ async def export_all(session: AsyncSession = Depends(get_session)):
                 max_playlists=s.max_playlists, music_source=s.music_source,
                 source_artists=s.source_artists, source_albums=s.source_albums,
                 source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
-                discovery_rate=s.discovery_rate,
+                discovery_rate=s.discovery_rate, history_runs=s.history_runs,
                 dj_name=dj_map.get(s.dj_id) if s.dj_id else None,
                 album_art=s.album_art,
                 slug=s.slug,
@@ -697,7 +704,7 @@ async def import_all(body: ExportData, session: AsyncSession = Depends(get_sessi
             max_playlists=s.max_playlists, dj_id=dj_id, music_source=s.music_source,
             source_artists=s.source_artists, source_albums=s.source_albums,
             source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
-            discovery_rate=s.discovery_rate,
+            discovery_rate=s.discovery_rate, history_runs=s.history_runs,
         ))
         stations_created += 1
 

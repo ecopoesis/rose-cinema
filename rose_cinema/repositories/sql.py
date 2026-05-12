@@ -52,6 +52,7 @@ def _station_to_record(s: Station) -> StationRecord:
         album_art=s.album_art or "",
         cron_schedule=s.cron_schedule,
         discovery_rate=s.discovery_rate,
+        history_runs=s.history_runs,
         slug=s.slug,
     )
 
@@ -179,6 +180,7 @@ class SqlStationRepository(StationRepository):
             album_art=record.album_art or None,
             cron_schedule=record.cron_schedule,
             discovery_rate=record.discovery_rate,
+            history_runs=record.history_runs,
             slug=slug,
         )
         self._session.add(obj)
@@ -205,6 +207,7 @@ class SqlStationRepository(StationRepository):
         obj.album_art = record.album_art or None
         obj.cron_schedule = record.cron_schedule
         obj.discovery_rate = record.discovery_rate
+        obj.history_runs = record.history_runs
         if record.slug:
             obj.slug = record.slug
         await self._session.commit()

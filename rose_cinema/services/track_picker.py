@@ -86,7 +86,7 @@ class TrackPicker:
                 return await self._pick_from_pool(pool, music_source, target_count)
             logger.info("seed_pool empty for %r — falling back to LLM-discovery", music_source)
 
-        return await self._pick_from_llm_discovery(music_source, target_count)
+        return await self._pick_from_llm_discovery(music_source, target_count, exclude_ids)
 
     # ── Pool-curation path ─────────────────────────────────────────────
 
@@ -204,8 +204,17 @@ class TrackPicker:
     # ── Legacy LLM-discovery path (kept for fallback) ─────────────────
 
     async def _pick_from_llm_discovery(
-        self, music_source: str, target_count: int,
+        self,
+        music_source: str,
+        target_count: int,
+        exclude_ids: set[str] | None = None,
     ) -> list[SongMetadata]:
+        avoid_rule = ""
+        if exclude_ids:
+            avoid_rule = (
+                "- RECENTLY PLAYED: Do not include any tracks that were recently "
+                "played. Pick fresh songs the listener hasn't heard lately.\n"
+            )
         system = (
             "You are a music programmer for a radio station. Given a seed track, "
             "artist, or theme, produce a coherent tracklist that fits thematically "
@@ -216,7 +225,8 @@ class TrackPicker:
             "- Span adjacent eras, scenes, or sub-genres that an informed listener "
             "would recognize as kin to the seed (contemporaries, influences, descendants).\n"
             "- The seed track or artist may appear once — at most twice — but not as "
-            "every entry.\n\n"
+            "every entry.\n"
+            f"{avoid_rule}\n"
             "OUTPUT FORMAT:\n"
             "Output ONLY a JSON array. Each element must be an object with these "
             'keys: "title", "artist", "album", "year", "duration_secs".\n'
@@ -265,6 +275,11 @@ class TrackPicker:
 
         if self._catalog is not None:
             songs = await self._verify(songs)
+        if exclude_ids:
+            before = len(songs)
+            songs = [s for s in songs if not s.apple_music_id or s.apple_music_id not in exclude_ids]
+            if len(songs) < before:
+                logger.info("Excluded %d recently-played tracks from LLM-discovery results", before - len(songs))
         return _cap_per_artist(songs, max_per_artist=2)
 
     async def _verify(self, proposals: list[SongMetadata]) -> list[SongMetadata]:

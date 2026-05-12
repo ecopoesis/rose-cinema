@@ -13,6 +13,7 @@
   let dj_max_length_secs = $state(init.dj_max_length_secs ?? 30);
   let max_playlists = $state(init.max_playlists ?? 0);
   let discovery_rate = $state(init.discovery_rate ?? 0.5);
+  let history_runs = $state(init.history_runs ?? 3);
   let source_artists = $state((init.source_artists ?? []).join('\n'));
   let source_albums = $state((init.source_albums ?? []).join('\n'));
   let source_tracks = $state((init.source_tracks ?? []).join('\n'));
@@ -61,6 +62,7 @@
         dj_max_length_secs: Number(dj_max_length_secs),
         max_playlists: Number(max_playlists),
         discovery_rate: Number(discovery_rate),
+        history_runs: Number(history_runs),
         source_artists: artists.length ? artists : null,
         source_albums: albums.length ? albums : null,
         source_tracks: tracks.length ? tracks : null,
@@ -161,6 +163,10 @@
     <div class="field">
       <label for="s-maxlen">Max DJ Segment (seconds)</label>
       <input id="s-maxlen" type="number" bind:value={dj_max_length_secs} min="5" max="120">
+    </div>
+    <div class="field">
+      <label for="s-history">No-Repeat Window <span class="hint">(runs, 0 = off)</span></label>
+      <input id="s-history" type="number" bind:value={history_runs} min="0" max="50">
     </div>
     <div class="field">
       <label for="s-maxpl">Max Playlists (0 = unlimited)</label>
