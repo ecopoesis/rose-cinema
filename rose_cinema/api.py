@@ -50,6 +50,30 @@ _stream_manager: StreamManager | None = None
 _ezstream_mgr: EzstreamManager | None = None
 
 
+async def _enqueue_track_downloads() -> None:
+    """Re-cache tracks for all ready/saved runs that lack .m4a files."""
+    if not settings.apple_music_user_token:
+        return
+    try:
+        from sqlalchemy import select as sa_select
+        from rose_cinema.models import PlaylistRun
+
+        queue = EventQueue(async_session)
+        async with async_session() as session:
+            result = await session.execute(
+                sa_select(PlaylistRun).where(
+                    PlaylistRun.status.in_(["ready", "saved"])
+                )
+            )
+            runs = result.scalars().all()
+            for run in runs:
+                await queue.enqueue(session, run.id, "download_tracks", 0)
+            await session.commit()
+        logger.info("Enqueued download_tracks for %d existing runs", len(runs))
+    except Exception:
+        logger.exception("Failed to enqueue track downloads")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _worker, _scheduler, _stream_manager, _ezstream_mgr
@@ -60,6 +84,7 @@ async def lifespan(app: FastAPI):
     _stream_manager = StreamManager(async_session)
     await _stream_manager.start_background_tasks()
     _ezstream_mgr = EzstreamManager()
+    asyncio.create_task(_enqueue_track_downloads())
     yield
     await _ezstream_mgr.stop_all()
     _ezstream_mgr = None

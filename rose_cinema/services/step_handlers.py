@@ -416,11 +416,12 @@ async def handle_download_tracks(payload: dict) -> dict:
     if not songs:
         return {"downloaded": 0, "skipped": 0, "failed": 0}
 
+    from rose_cinema.database import async_session
     from rose_cinema.services.apple_music_stream import AppleMusicStreamer
     from rose_cinema.services.track_cache import TrackCache
 
     streamer = AppleMusicStreamer()
-    cache = TrackCache(streamer)
+    cache = TrackCache(streamer, async_session)
     cached = await cache.ensure_playlist_cached(entries)
 
     downloaded = len(cached)
