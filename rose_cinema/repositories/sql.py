@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rose_cinema.models import DJ, Station, PlaylistRun, ListenPosition, slugify
+from rose_cinema.models import DJ, Station, PlaylistRun, ListenPosition, CachedTrack, slugify
 from rose_cinema.repositories import (
     DJRecord,
     DJRepository,
@@ -15,6 +15,8 @@ from rose_cinema.repositories import (
     StationRepository,
     PlaylistRunRecord,
     PlaylistRunRepository,
+    CachedTrackRecord,
+    CachedTrackRepository,
     ListenPositionRecord,
     ListenPositionRepository,
 )
@@ -305,6 +307,66 @@ class SqlPlaylistRunRepository(PlaylistRunRepository):
         obj.status = "deleted"
         await self._session.commit()
         return True
+
+
+# ── CachedTrack ───────────────────────────────────────────────────────
+
+
+def _cached_track_to_record(ct: CachedTrack) -> CachedTrackRecord:
+    return CachedTrackRecord(
+        apple_music_id=ct.apple_music_id,
+        path=ct.path,
+        artist=ct.artist,
+        album=ct.album,
+        title=ct.title,
+        year=ct.year,
+        track_number=ct.track_number,
+    )
+
+
+class SqlCachedTrackRepository(CachedTrackRepository):
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def get(self, apple_music_id: str) -> CachedTrackRecord | None:
+        obj = await self._session.get(CachedTrack, apple_music_id)
+        return _cached_track_to_record(obj) if obj else None
+
+    async def get_many(self, apple_music_ids: list[str]) -> dict[str, CachedTrackRecord]:
+        if not apple_music_ids:
+            return {}
+        result = await self._session.execute(
+            select(CachedTrack).where(CachedTrack.apple_music_id.in_(apple_music_ids))
+        )
+        return {
+            ct.apple_music_id: _cached_track_to_record(ct)
+            for ct in result.scalars().all()
+        }
+
+    async def upsert(self, record: CachedTrackRecord) -> CachedTrackRecord:
+        stmt = pg_insert(CachedTrack).values(
+            apple_music_id=record.apple_music_id,
+            path=record.path,
+            artist=record.artist,
+            album=record.album,
+            title=record.title,
+            year=record.year,
+            track_number=record.track_number,
+        ).on_conflict_do_update(
+            index_elements=["apple_music_id"],
+            set_={
+                "path": record.path,
+                "artist": record.artist,
+                "album": record.album,
+                "title": record.title,
+                "year": record.year,
+                "track_number": record.track_number,
+            },
+        ).returning(CachedTrack)
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        obj = result.scalar_one()
+        return _cached_track_to_record(obj)
 
 
 # ── ListenPosition ────────────────────────────────────────────────────

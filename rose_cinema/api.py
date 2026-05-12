@@ -895,20 +895,21 @@ async def listen_native_stream(
         listened_date=today,
     ))
 
+    cached_paths: dict[str, Path] = {}
     if settings.apple_music_user_token:
         streamer = AppleMusicStreamer()
-        cache = TrackCache(streamer)
+        cache = TrackCache(streamer, async_session)
         remaining = entries[entry_index:]
-        uncached = [
-            e for e in remaining
-            if e.get("type") == "song"
-            and e.get("apple_music_id")
-            and not cache.is_cached(e["apple_music_id"])
+        song_ids = [
+            e["apple_music_id"] for e in remaining
+            if e.get("type") == "song" and e.get("apple_music_id")
         ]
+        cached_paths = await cache.resolve_paths(song_ids)
+        uncached = [aid for aid in song_ids if aid not in cached_paths]
         if uncached:
-            await cache.ensure_playlist_cached(
+            cached_paths.update(await cache.ensure_playlist_cached(
                 remaining, eager_count=3, max_downloads=3,
-            )
+            ))
 
             async def _bg_download(c=cache, r=remaining):
                 try:
@@ -925,6 +926,7 @@ async def listen_native_stream(
         entries=entries,
         entry_index=entry_index,
         station_name=station.name,
+        cached_paths=cached_paths,
     )
 
     want_icy = request.headers.get("icy-metadata") == "1"
@@ -951,7 +953,7 @@ async def listen_native_stream(
 
     return StreamingResponse(
         generate(),
-        media_type="audio/mpeg",
+        media_type="audio/aac",
         headers=headers,
     )
 

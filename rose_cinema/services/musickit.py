@@ -57,6 +57,7 @@ def _track_from_payload(item: dict) -> CatalogTrack:
         album=attrs.get("albumName", ""),
         year=(attrs.get("releaseDate") or "")[:4],
         duration_secs=duration_ms / 1000.0,
+        track_number=attrs.get("trackNumber", 0) or 0,
     )
 
 

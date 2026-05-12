@@ -167,15 +167,14 @@ class AppleMusicStreamer:
         logger.info("Got decryption key for track %s", item_id)
         return hex_key
 
-    async def stream_track_as_mp3(self, apple_music_id: str):
+    async def stream_track_as_aac(self, apple_music_id: str):
         info = await self.get_stream_info(apple_music_id)
 
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning"]
         if info.is_encrypted and info.decryption_key:
             cmd += ["-decryption_key", info.decryption_key]
         cmd += ["-i", info.stream_url]
-        cmd += ["-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
-                "-write_xing", "0", "-reservoir", "0", "-id3v2_version", "0", "-f", "mp3", "pipe:1"]
+        cmd += ["-c:a", "copy", "-f", "adts", "pipe:1"]
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from mutagen.mp3 import MP3
+import mutagen
 
 from rose_cinema.config import settings
 
@@ -22,6 +22,7 @@ class EzstreamSession:
         entries: list[dict],
         entry_index: int,
         station_name: str,
+        cached_paths: dict[str, Path] | None = None,
     ) -> None:
         self.station_id = station_id
         self.uid = uid
@@ -29,6 +30,7 @@ class EzstreamSession:
         self.entries = entries
         self.entry_index = entry_index
         self.station_name = station_name
+        self._cached_paths = cached_paths or {}
         self._proc: asyncio.subprocess.Process | None = None
         self._work_dir: Path | None = None
         self._schedule: list[tuple[float, int]] = []
@@ -47,7 +49,6 @@ class EzstreamSession:
         self, work_dir: Path,
     ) -> tuple[Path, list[tuple[float, int]]]:
         concat_file = work_dir / "concat.txt"
-        tracks_dir = Path(settings.tracks_dir)
         lines: list[str] = []
         schedule: list[tuple[float, int]] = []
         cumulative = 0.0
@@ -62,11 +63,11 @@ class EzstreamSession:
                 path = Path(audio_file).resolve()
             elif entry.get("type") == "song":
                 aid = entry.get("apple_music_id", "")
-                path = tracks_dir / f"{aid}.mp3"
-                if not path.exists():
+                resolved = self._cached_paths.get(aid)
+                if not resolved or not resolved.exists():
                     logger.warning("Track not cached, skipping: %s", aid)
                     continue
-                path = path.resolve()
+                path = resolved.resolve()
             else:
                 continue
 
@@ -75,7 +76,7 @@ class EzstreamSession:
             schedule.append((cumulative, i))
 
             try:
-                duration = MP3(str(path)).info.length
+                duration = mutagen.File(str(path)).info.length
             except Exception:
                 duration = entry.get("duration_secs") or 30.0
             cumulative += duration
@@ -96,9 +97,8 @@ class EzstreamSession:
             "-f", "concat", "-safe", "0", "-i", str(concat_file),
             "-af", "loudnorm=I=-14:TP=-1:LRA=11",
             "-ar", "44100", "-ac", "2",
-            "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
-            "-write_xing", "0", "-reservoir", "0", "-id3v2_version", "0",
-            "-f", "mp3", "pipe:1",
+            "-c:a", "aac", "-b:a", settings.native_stream_bitrate,
+            "-f", "adts", "pipe:1",
         ]
 
         self._proc = await asyncio.create_subprocess_exec(
@@ -266,6 +266,7 @@ class EzstreamManager:
         entries: list[dict],
         entry_index: int,
         station_name: str,
+        cached_paths: dict[str, Path] | None = None,
     ) -> EzstreamSession:
         key = self._key(station_id, uid)
 
@@ -280,6 +281,7 @@ class EzstreamManager:
             entries=entries,
             entry_index=entry_index,
             station_name=station_name,
+            cached_paths=cached_paths,
         )
         await session.start()
         self._sessions[key] = session

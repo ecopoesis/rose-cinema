@@ -77,6 +77,7 @@ async def handle_pick_tracks(payload: dict) -> dict:
                 "year": s.year,
                 "apple_music_id": s.apple_music_id,
                 "duration_secs": s.duration_secs,
+                "track_number": s.track_number,
             }
             for s in songs
         ]

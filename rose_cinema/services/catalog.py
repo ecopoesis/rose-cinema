@@ -12,6 +12,7 @@ class CatalogTrack:
     album: str = ""
     year: str = ""
     duration_secs: float = 0.0
+    track_number: int = 0
 
 
 @dataclass

@@ -131,8 +131,8 @@ class NativeStreamSession:
                 "ffmpeg", "-hide_banner", "-loglevel", "warning",
                 "-i", audio_file,
                 "-ar", "44100", "-ac", "2",
-                "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
-                "-write_xing", "0", "-reservoir", "0", "-id3v2_version", "0", "-f", "mp3", "pipe:1",
+                "-c:a", "aac", "-b:a", settings.native_stream_bitrate,
+                "-f", "adts", "pipe:1",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -165,7 +165,7 @@ class NativeStreamSession:
                 "Streaming %s - %s (apple_music_id=%s)",
                 entry.get("artist", "?"), entry.get("title", "?"), apple_id,
             )
-            async for chunk in self.streamer.stream_track_as_mp3(apple_id):
+            async for chunk in self.streamer.stream_track_as_aac(apple_id):
                 yield chunk
         except Exception:
             logger.exception("Failed to stream track %s", apple_id)

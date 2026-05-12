@@ -51,6 +51,17 @@ class ListenPositionRecord:
 
 
 @dataclass
+class CachedTrackRecord:
+    apple_music_id: str = ""
+    path: str = ""
+    artist: str = ""
+    album: str = ""
+    title: str = ""
+    year: str = ""
+    track_number: int = 0
+
+
+@dataclass
 class PlaylistRunRecord:
     id: str = ""
     station_id: str = ""
@@ -124,6 +135,17 @@ class PlaylistRunRepository(ABC):
 
     @abstractmethod
     async def soft_delete(self, run_id: str) -> bool: ...
+
+
+class CachedTrackRepository(ABC):
+    @abstractmethod
+    async def get(self, apple_music_id: str) -> CachedTrackRecord | None: ...
+
+    @abstractmethod
+    async def get_many(self, apple_music_ids: list[str]) -> dict[str, CachedTrackRecord]: ...
+
+    @abstractmethod
+    async def upsert(self, record: CachedTrackRecord) -> CachedTrackRecord: ...
 
 
 class ListenPositionRepository(ABC):

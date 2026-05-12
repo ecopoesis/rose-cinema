@@ -135,6 +135,19 @@ class GenerationEvent(Base):
     run: Mapped[PlaylistRun] = relationship(back_populates="events")
 
 
+class CachedTrack(Base):
+    __tablename__ = "cached_tracks"
+
+    apple_music_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    artist: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    album: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    title: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    year: Mapped[str] = mapped_column(String(4), nullable=False, default="")
+    track_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class ListenPosition(Base):
     __tablename__ = "listen_positions"
     __table_args__ = (
