@@ -45,6 +45,7 @@ class SongMetadata:
     year: str = ""
     apple_music_id: str = ""
     duration_secs: float = 210.0  # default 3.5 min
+    track_number: int = 0
 
     def to_dict(self) -> dict:
         return {

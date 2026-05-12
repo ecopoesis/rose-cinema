@@ -309,6 +309,7 @@ def _track_to_song(t: CatalogTrack, *, fallback_duration: float = 0.0) -> SongMe
         year=t.year,
         apple_music_id=t.apple_music_id,
         duration_secs=t.duration_secs or fallback_duration,
+        track_number=t.track_number,
     )
 
 
