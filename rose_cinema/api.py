@@ -261,7 +261,7 @@ async def delete_station(
         raise HTTPException(404, "Station not found")
 
     run_repo = SqlPlaylistRunRepository(session)
-    runs = await run_repo.list_by_station(station_id)
+    runs = await run_repo.list_by_station(station_id, include_deleted=True)
     if runs:
         from rose_cinema.services.cleanup import cleanup_run
         ma_client = get_music_assistant_client()
