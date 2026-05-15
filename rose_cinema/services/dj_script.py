@@ -31,7 +31,9 @@ def _estimate_word_count(max_seconds: float, babble_rate: float) -> int:
     return int((effective_seconds / 60) * wpm)
 
 
-def build_system_prompt(dj: DJRecord, babble_rate: float, max_seconds: int) -> str:
+def build_system_prompt(
+    dj: DJRecord, babble_rate: float, max_seconds: int, weather: str = "",
+) -> str:
     word_count = _estimate_word_count(max_seconds, babble_rate)
     uses_chatterbox = dj.tts_provider == "chatterbox"
 
@@ -86,7 +88,13 @@ def build_system_prompt(dj: DJRecord, babble_rate: float, max_seconds: int) -> s
             "connect songs thematically. Be the DJ people tune in for.\n"
         )
 
-    # Append the DJ's personality prompt
+    if weather:
+        base += (
+            f"\nWEATHER:\n{weather}\n"
+            "Work the forecast into your patter naturally — a passing remark, "
+            "not a formal weather report. Keep it casual.\n"
+        )
+
     if dj.agent_md.strip():
         base += f"\nYOUR PERSONALITY:\n{dj.agent_md}\n"
 
@@ -103,9 +111,10 @@ class DJScriptService:
         station_name: str,
         babble_rate: float,
         max_seconds: int,
+        weather: str = "",
     ) -> str:
         """Generate a station intro/greeting."""
-        system = build_system_prompt(dj, babble_rate, max_seconds)
+        system = build_system_prompt(dj, babble_rate, max_seconds, weather=weather)
         user = (
             f"You're opening your radio show '{station_name}'. "
             "Give a welcoming intro to kick things off."
@@ -123,9 +132,10 @@ class DJScriptService:
         next_song: dict,
         babble_rate: float,
         max_seconds: int,
+        weather: str = "",
     ) -> str:
         """Generate DJ patter between two songs."""
-        system = build_system_prompt(dj, babble_rate, max_seconds)
+        system = build_system_prompt(dj, babble_rate, max_seconds, weather=weather)
 
         if previous_song:
             user = (

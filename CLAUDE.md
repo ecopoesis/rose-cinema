@@ -44,6 +44,8 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 | `dj_talk_rate` | 0..1 | probability of DJ patter between tracks |
 | `dj_babble_rate` | 0..1 | 0 = "that was X by Y", 1 = stories + trivia |
 | `dj_max_length_secs` | 5–120 | per-segment cap |
+| `weather_postal_code` | string? | US zip code for local weather injection (e.g. `02101`) |
+| `weather_rate` | 0..1 | probability that a run includes weather in DJ patter |
 | `music_source` | string | seed text the LLM uses to assemble the tracklist |
 
 ## What's built
@@ -61,7 +63,7 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 
 ## Notable backlog (GitHub issues)
 
-#1 station variety sliders · #2 Music-Map · #3 MusicBrainz · #4 iOS Shortcut · #5 today-in-history chitchat · #6 nightly news scrape · #7 full create/edit web UI · #10 length-budget top-up · #16 no-repeat memory · #18 Jellyfin/Lidarr · #19 mixed-source playback
+#1 station variety sliders · #2 Music-Map · #3 MusicBrainz · #4 iOS Shortcut · #5 today-in-history chitchat · #6 nightly news scrape · #7 full create/edit web UI · #10 length-budget top-up · #16 no-repeat memory · #18 Jellyfin/Lidarr · #19 mixed-source playback · #21 weather forecast in DJ chitchat
 
 ## Commands
 

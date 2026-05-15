@@ -36,6 +36,8 @@ class StationRecord:
     cron_schedule: str | None = None
     discovery_rate: float = 0.5
     history_runs: int = 3
+    weather_postal_code: str | None = None
+    weather_rate: float = 0.0
     slug: str = ""
 
 

@@ -353,6 +353,23 @@ class QueueWorker:
             return
         dj = await session.get(DJ, station.dj_id) if station.dj_id else None
 
+        weather_text = ""
+        if (
+            dj
+            and station.weather_postal_code
+            and station.weather_rate > 0
+            and random.random() < station.weather_rate
+        ):
+            from rose_cinema.services.weather import get_forecast
+
+            forecast = await get_forecast(station.weather_postal_code)
+            if forecast:
+                weather_text = (
+                    f"It's going to be {forecast.temperature}°{forecast.temperature_unit} "
+                    f"in {forecast.location} {forecast.period_name.lower()} — "
+                    f"{forecast.short_forecast.lower()}. Wind {forecast.wind_speed.lower()}."
+                )
+
         if station.dj_talk_rate > 0 and dj:
             await self._queue.enqueue(
                 session, run_id, "generate_intro_script", 0,
@@ -361,6 +378,7 @@ class QueueWorker:
                     "station_name": station.name,
                     "babble_rate": station.dj_babble_rate,
                     "max_secs": station.dj_max_length_secs,
+                    "weather": weather_text,
                 },
             )
 
@@ -383,6 +401,7 @@ class QueueWorker:
                         "babble_rate": station.dj_babble_rate,
                         "max_secs": station.dj_max_length_secs,
                         "song_index": i,
+                        "weather": weather_text,
                     },
                 )
 

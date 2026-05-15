@@ -225,6 +225,8 @@ async def create_station(
         dj_id=body.dj_id,
         music_source=body.music_source,
         history_runs=body.history_runs,
+        weather_postal_code=body.weather_postal_code,
+        weather_rate=body.weather_rate,
     ))
     return StationResponse(**record.__dict__)
 
@@ -243,6 +245,7 @@ async def update_station(
         "dj_babble_rate", "dj_max_length_secs", "max_playlists", "dj_id", "music_source",
         "source_artists", "source_albums", "source_tracks",
         "cron_schedule", "discovery_rate", "history_runs",
+        "weather_postal_code", "weather_rate",
     ):
         val = getattr(body, field_name)
         if val is not None:
@@ -733,6 +736,7 @@ async def export_all(session: AsyncSession = Depends(get_session)):
                 source_artists=s.source_artists, source_albums=s.source_albums,
                 source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
                 discovery_rate=s.discovery_rate, history_runs=s.history_runs,
+                weather_postal_code=s.weather_postal_code, weather_rate=s.weather_rate,
                 dj_name=dj_map.get(s.dj_id) if s.dj_id else None,
                 album_art=s.album_art,
                 slug=s.slug,
@@ -775,6 +779,7 @@ async def import_all(body: ExportData, session: AsyncSession = Depends(get_sessi
             source_artists=s.source_artists, source_albums=s.source_albums,
             source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
             discovery_rate=s.discovery_rate, history_runs=s.history_runs,
+            weather_postal_code=s.weather_postal_code, weather_rate=s.weather_rate,
         ))
         stations_created += 1
 

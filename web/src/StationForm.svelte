@@ -17,6 +17,8 @@
   let source_artists = $state((init.source_artists ?? []).join('\n'));
   let source_albums = $state((init.source_albums ?? []).join('\n'));
   let source_tracks = $state((init.source_tracks ?? []).join('\n'));
+  let weather_postal_code = $state(init.weather_postal_code ?? '');
+  let weather_rate = $state(init.weather_rate ?? 0);
   let cron_schedule = $state(init.cron_schedule ?? '');
   let artFile = $state(null);
   let artPreview = $state(init.album_art ? `/api/stations/${init.id}/album-art` : '');
@@ -66,6 +68,8 @@
         source_artists: artists.length ? artists : null,
         source_albums: albums.length ? albums : null,
         source_tracks: tracks.length ? tracks : null,
+        weather_postal_code: weather_postal_code.trim() || null,
+        weather_rate: Number(weather_rate),
         cron_schedule: cron_schedule.trim() || null,
         _artFile: artFile,
         _removeArt: removeArt,
@@ -171,6 +175,18 @@
     <div class="field">
       <label for="s-maxpl">Max Playlists (0 = unlimited)</label>
       <input id="s-maxpl" type="number" bind:value={max_playlists} min="0">
+    </div>
+    <div class="field">
+      <label for="s-zip">Weather Zip Code <span class="hint">(US only)</span></label>
+      <input id="s-zip" bind:value={weather_postal_code}
+             placeholder="e.g. 02101" maxlength="10">
+    </div>
+    <div class="field">
+      <label for="s-weather">Weather Rate</label>
+      <div class="range-row">
+        <input id="s-weather" type="range" bind:value={weather_rate} min="0" max="1" step="0.05">
+        <span class="range-val">{Number(weather_rate).toFixed(2)}</span>
+      </div>
     </div>
     <div class="field">
       <label for="s-cron">Auto-Generate Schedule <span class="hint">(cron)</span></label>

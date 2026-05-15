@@ -55,6 +55,8 @@ def _station_to_record(s: Station) -> StationRecord:
         cron_schedule=s.cron_schedule,
         discovery_rate=s.discovery_rate,
         history_runs=s.history_runs,
+        weather_postal_code=s.weather_postal_code,
+        weather_rate=s.weather_rate,
         slug=s.slug,
     )
 
@@ -183,6 +185,8 @@ class SqlStationRepository(StationRepository):
             cron_schedule=record.cron_schedule,
             discovery_rate=record.discovery_rate,
             history_runs=record.history_runs,
+            weather_postal_code=record.weather_postal_code,
+            weather_rate=record.weather_rate,
             slug=slug,
         )
         self._session.add(obj)
@@ -210,6 +214,8 @@ class SqlStationRepository(StationRepository):
         obj.cron_schedule = record.cron_schedule
         obj.discovery_rate = record.discovery_rate
         obj.history_runs = record.history_runs
+        obj.weather_postal_code = record.weather_postal_code
+        obj.weather_rate = record.weather_rate
         if record.slug:
             obj.slug = record.slug
         await self._session.commit()

@@ -74,6 +74,8 @@ class Station(Base):
     cron_schedule: Mapped[str | None] = mapped_column(String(100), nullable=True)
     discovery_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     history_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    weather_postal_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    weather_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

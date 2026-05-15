@@ -96,6 +96,7 @@ async def handle_generate_intro_script(payload: dict) -> dict:
         station_name=payload["station_name"],
         babble_rate=payload["babble_rate"],
         max_seconds=payload["max_secs"],
+        weather=payload.get("weather", ""),
     )
     return {"script": script}
 
@@ -132,6 +133,7 @@ async def handle_generate_transition(payload: dict) -> dict:
         next_song=payload["next_song"],
         babble_rate=payload["babble_rate"],
         max_seconds=payload["max_secs"],
+        weather=payload.get("weather", ""),
     )
     return {"script": script, "song_index": payload.get("song_index", 0)}
 
