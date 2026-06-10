@@ -32,9 +32,12 @@ async def _convert_to_mp3(src: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(suffix=".mp3", dir=str(dest.parent))
     os.close(fd)
+    # -vn matters: embedded cover art would become an attached-picture video
+    # stream in the mp3, and a stream appearing mid-concat kills ffmpeg.
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-i", str(src),
+        "-vn",
         "-ar", "44100", "-ac", "2",
         "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
         "-f", "mp3", tmp,
@@ -96,13 +99,15 @@ class EzstreamSession:
     async def _build_concat_and_schedule(
         self, work_dir: Path,
     ) -> tuple[Path, list[tuple[float, int]]]:
-        """Build the ffmpeg concat list, normalized to all-MP3 inputs.
+        """Build the ffmpeg concat list, normalized to uniform MP3 inputs.
 
-        The concat demuxer requires every file to share one codec. Tracks are
-        cached on disk as AAC .m4a, DJ segments as .mp3 — so non-MP3 files get
-        a one-time MP3 conversion cached under stream_mp3_dir. Files needed
-        soon convert before start; the rest convert in the background, in
-        playback order, well ahead of the realtime-paced stream.
+        The concat demuxer requires every file to share identical streams —
+        same codec, sample rate, and channel count. Tracks are cached on disk
+        as AAC .m4a and DJ segments as 24kHz-mono .mp3, so *every* file gets a
+        one-time normalizing conversion (44.1kHz stereo mp3, no cover-art
+        stream) cached under stream_mp3_dir. Files needed soon convert before
+        start; the rest convert in the background, in playback order, well
+        ahead of the realtime-paced stream.
         """
         concat_file = work_dir / "concat.txt"
         lines: list[str] = []
@@ -133,18 +138,16 @@ class EzstreamSession:
             except Exception:
                 duration = entry.get("duration_secs") or 30.0
 
-            stream_path = path
-            if path.suffix.lower() != ".mp3":
-                stream_path = _mp3_cache_path(path)
-                if not (stream_path.exists() and stream_path.stat().st_size > 0):
-                    if cumulative < _SYNC_CONVERT_LEAD_SECS:
-                        try:
-                            await _convert_to_mp3(path, stream_path)
-                        except Exception:
-                            logger.exception("Skipping unconvertible track: %s", path.name)
-                            continue
-                    else:
-                        pending.append((path, stream_path))
+            stream_path = _mp3_cache_path(path)
+            if not (stream_path.exists() and stream_path.stat().st_size > 0):
+                if cumulative < _SYNC_CONVERT_LEAD_SECS:
+                    try:
+                        await _convert_to_mp3(path, stream_path)
+                    except Exception:
+                        logger.exception("Skipping unconvertible track: %s", path.name)
+                        continue
+                else:
+                    pending.append((path, stream_path))
 
             escaped = str(stream_path).replace("'", "'\\''")
             lines.append(f"file '{escaped}'")

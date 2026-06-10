@@ -26,9 +26,14 @@ async def cleanup_run(
             )
 
     if run.playlist_json:
+        from rose_cinema.services.ezstream_manager import _mp3_cache_path
+
         for entry in json.loads(run.playlist_json):
             if entry.get("type") == "dj" and entry.get("audio_file"):
                 path = Path(audio_dir) / Path(entry["audio_file"]).name
+                stream_mp3 = _mp3_cache_path(path.resolve())
+                if stream_mp3.exists():
+                    stream_mp3.unlink()
                 if path.exists():
                     path.unlink()
                     logger.info("Deleted DJ audio: %s", path)
