@@ -66,8 +66,8 @@ class MusicAssistantClient:
                 media=media,
                 option=option,
             )
-        if r.get("error"):
-            raise RuntimeError(f"MA play_media failed: {r['error']}")
+        if _error(r):
+            raise RuntimeError(f"MA play_media failed: {_error(r)}")
 
     async def get_player_state(self, player_id: str) -> dict:
         async with self._session() as (ws, mid):
@@ -87,13 +87,52 @@ class MusicAssistantClient:
         return r.get("result") or []
 
     async def remove_playlist(self, playlist_id: str) -> None:
+        """Remove an MA playlist and the ingested DJ tracks it references.
+
+        DJ patter MP3s live in MA's library via the builtin provider; the
+        playlist removal alone would leave them behind as dead entries.
+        """
         async with self._session() as (ws, mid):
             r = await _call(
-                ws, mid, "music/playlists/remove_playlist",
-                db_playlist_id=playlist_id,
+                ws, mid, "music/playlists/playlist_tracks",
+                item_id=playlist_id,
+                provider_instance_id_or_domain="library",
             )
-            if r.get("error"):
-                raise RuntimeError(f"MA remove_playlist failed: {r['error']}")
+            tracks = [] if _error(r) else (r.get("result") or [])
+            if isinstance(tracks, dict):
+                tracks = tracks.get("items", [])
+            for t in tracks:
+                if t.get("provider") != "builtin":
+                    continue
+                r_t = await _call(
+                    ws, mid, "music/tracks/get_track",
+                    item_id=t["item_id"],
+                    provider_instance_id_or_domain="builtin",
+                )
+                lib = r_t.get("result") or {}
+                if _error(r_t) or lib.get("provider") != "library":
+                    logger.warning(
+                        "Could not resolve DJ track %s to library item: %s",
+                        t.get("item_id"), _error(r_t),
+                    )
+                    continue
+                r_rm = await _call(
+                    ws, mid, "music/library/remove_item",
+                    media_type="track",
+                    library_item_id=lib["item_id"],
+                )
+                if _error(r_rm):
+                    logger.warning(
+                        "Failed to remove DJ track %s: %s",
+                        lib.get("uri"), _error(r_rm),
+                    )
+            r = await _call(
+                ws, mid, "music/library/remove_item",
+                media_type="playlist",
+                library_item_id=playlist_id,
+            )
+            if _error(r):
+                raise RuntimeError(f"MA remove_playlist failed: {_error(r)}")
 
     async def save_as_playlist(
         self,
@@ -162,8 +201,8 @@ class MusicAssistantClient:
                                     },
                                 },
                             )
-                            if r_upd.get("error"):
-                                logger.warning("MA track artwork update failed: %s", r_upd["error"])
+                            if _error(r_upd):
+                                logger.warning("MA track artwork update failed: %s", _error(r_upd))
                         except Exception:
                             logger.warning("Failed to set artwork for DJ track %s, continuing", url)
 
@@ -198,6 +237,13 @@ class MusicAssistantClient:
             if not (auth.get("result") or {}).get("authenticated"):
                 raise RuntimeError(f"MA auth failed: {auth!r}")
             yield ws, ids
+
+
+def _error(r: dict) -> str | None:
+    # MA signals failure via error_code + details, not an "error" key.
+    if r.get("error_code") is not None:
+        return f"{r['error_code']}: {r.get('details') or r.get('error')}"
+    return r.get("error")
 
 
 async def _call(ws, ids, command: str, **args) -> dict:
