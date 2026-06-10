@@ -39,12 +39,14 @@ class FakeCatalog(MusicCatalog):
         artist_views: dict[str, CatalogArtistViews] | None = None,
         genres: dict[str, str] | None = None,
         genre_top_songs: dict[str, list[CatalogTrack]] | None = None,
+        songs_by_id: dict[str, dict] | None = None,
     ):
         self.songs_by_query = songs_by_query or {}
         self.artists_by_query = artists_by_query or {}
         self.artist_views = artist_views or {}
         self.genres = genres or {}
         self.genre_top_songs = genre_top_songs or {}
+        self.songs_by_id = songs_by_id or {}
         self.calls: list[tuple] = []
 
     async def search(self, query: str, limit: int = 5) -> list[CatalogTrack]:
@@ -73,6 +75,10 @@ class FakeCatalog(MusicCatalog):
             top_songs=v.top_songs[:top_songs] if top_songs else [],
             similar_artists=v.similar_artists[:similar_artists] if similar_artists else [],
         )
+
+    async def get_song(self, song_id: str) -> dict:
+        self.calls.append(("get_song", song_id))
+        return dict(self.songs_by_id.get(song_id, {}))
 
     async def list_genres(self) -> dict[str, str]:
         return dict(self.genres)
