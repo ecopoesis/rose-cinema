@@ -39,8 +39,11 @@ async def test_stream_survives_dj_to_track_transition(tmp_path, monkeypatch):
     cover-art video stream appearing mid-concat, and sample-rate/channel
     changes between files.
     """
-    monkeypatch.setattr(settings, "streams_dir", str(tmp_path / "streams"))
-    monkeypatch.setattr(settings, "stream_mp3_dir", str(tmp_path / "stream_mp3"))
+    # Relative dirs, like production defaults — concat entries must still
+    # come out absolute or ffmpeg resolves them against the concat file's dir.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "streams_dir", "streams")
+    monkeypatch.setattr(settings, "stream_mp3_dir", "stream_mp3")
 
     dj_mp3 = tmp_path / "dj.mp3"
     song_m4a = tmp_path / "song.m4a"
@@ -69,6 +72,8 @@ async def test_stream_survives_dj_to_track_transition(tmp_path, monkeypatch):
         concat = (tmp_path / "streams" / "st_u" / "concat.txt").read_text()
         assert ".m4a" not in concat
         assert concat.count(str(tmp_path / "stream_mp3")) == 2
+        for line in concat.strip().splitlines():
+            assert line.startswith("file '/"), f"relative path in concat: {line}"
 
         buf = b""
         gen = session.stream_plain()

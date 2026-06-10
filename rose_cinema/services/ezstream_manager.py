@@ -22,8 +22,10 @@ _SYNC_CONVERT_LEAD_SECS = 120.0
 
 
 def _mp3_cache_path(src: Path) -> Path:
+    # Absolute: concat-list entries resolve relative to the concat file's
+    # directory, so a relative cache dir would break ffmpeg's file opens.
     digest = hashlib.sha1(str(src).encode()).hexdigest()[:16]
-    return Path(settings.stream_mp3_dir) / f"{digest}.mp3"
+    return Path(settings.stream_mp3_dir).resolve() / f"{digest}.mp3"
 
 
 async def _convert_to_mp3(src: Path, dest: Path) -> None:
