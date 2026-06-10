@@ -22,8 +22,14 @@ from rose_cinema.repositories.sql import (
     SqlStationRepository,
     SqlPlaylistRunRepository,
     SqlListenPositionRepository,
+    SqlAppSettingsRepository,
 )
 from rose_cinema.repositories import ListenPositionRecord
+from rose_cinema.services.exclusions import (
+    EXCLUDED_ARTISTS_KEY,
+    get_global_excluded_artists,
+    merge_exclusions,
+)
 from rose_cinema.services.music_assistant import get_music_assistant_client
 from rose_cinema.services.queue import EventQueue, QueueWorker, enqueue_ma_chain
 from rose_cinema.services.scheduler import CronScheduler
@@ -40,6 +46,7 @@ from rose_cinema.schemas import (
     MAPlayRequest, MAPlayResponse,
     DJExport, StationExport, ExportData, ImportResult,
     TestSongResponse, TestPlaylistResponse,
+    ExclusionSettings,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -224,9 +231,16 @@ async def create_station(
         max_playlists=body.max_playlists,
         dj_id=body.dj_id,
         music_source=body.music_source,
+        source_artists=body.source_artists,
+        source_albums=body.source_albums,
+        source_tracks=body.source_tracks,
+        excluded_artists=body.excluded_artists,
+        cron_schedule=body.cron_schedule,
+        discovery_rate=body.discovery_rate,
         history_runs=body.history_runs,
         weather_postal_code=body.weather_postal_code,
         weather_rate=body.weather_rate,
+        slug=body.slug or "",
     ))
     return StationResponse(**record.__dict__)
 
@@ -244,6 +258,7 @@ async def update_station(
         "name", "description", "length_minutes", "dj_talk_rate",
         "dj_babble_rate", "dj_max_length_secs", "max_playlists", "dj_id", "music_source",
         "source_artists", "source_albums", "source_tracks",
+        "excluded_artists",
         "cron_schedule", "discovery_rate", "history_runs",
         "weather_postal_code", "weather_rate",
     ):
@@ -387,6 +402,10 @@ async def generate_playlist(
             "source_artists": station.source_artists,
             "source_albums": station.source_albums,
             "source_tracks": station.source_tracks,
+            "excluded_artists": merge_exclusions(
+                await get_global_excluded_artists(session),
+                station.excluded_artists,
+            ),
             "discovery_rate": station.discovery_rate,
         },
     )
@@ -591,6 +610,10 @@ async def test_playlist(
         source_albums=station.source_albums,
         source_tracks=station.source_tracks,
         discovery_rate=station.discovery_rate,
+        excluded_artists=merge_exclusions(
+            await get_global_excluded_artists(session),
+            station.excluded_artists,
+        ),
     )
     elapsed = _time.monotonic() - t0
 
@@ -711,6 +734,22 @@ async def save_run_to_ma(
 # ── Export / Import ───────────────────────────────────────────────
 
 
+@app.get("/api/settings/exclusions", response_model=ExclusionSettings)
+async def get_exclusion_settings(session: AsyncSession = Depends(get_session)):
+    return ExclusionSettings(
+        excluded_artists=await get_global_excluded_artists(session),
+    )
+
+
+@app.put("/api/settings/exclusions", response_model=ExclusionSettings)
+async def update_exclusion_settings(
+    body: ExclusionSettings, session: AsyncSession = Depends(get_session)
+):
+    cleaned = merge_exclusions(body.excluded_artists)
+    await SqlAppSettingsRepository(session).set(EXCLUDED_ARTISTS_KEY, cleaned)
+    return ExclusionSettings(excluded_artists=cleaned)
+
+
 @app.get("/api/export", response_model=ExportData)
 async def export_all(session: AsyncSession = Depends(get_session)):
     dj_repo = SqlDJRepository(session)
@@ -734,7 +773,8 @@ async def export_all(session: AsyncSession = Depends(get_session)):
                 dj_babble_rate=s.dj_babble_rate, dj_max_length_secs=s.dj_max_length_secs,
                 max_playlists=s.max_playlists, music_source=s.music_source,
                 source_artists=s.source_artists, source_albums=s.source_albums,
-                source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
+                source_tracks=s.source_tracks, excluded_artists=s.excluded_artists,
+                cron_schedule=s.cron_schedule,
                 discovery_rate=s.discovery_rate, history_runs=s.history_runs,
                 weather_postal_code=s.weather_postal_code, weather_rate=s.weather_rate,
                 dj_name=dj_map.get(s.dj_id) if s.dj_id else None,
@@ -777,7 +817,8 @@ async def import_all(body: ExportData, session: AsyncSession = Depends(get_sessi
             dj_babble_rate=s.dj_babble_rate, dj_max_length_secs=s.dj_max_length_secs,
             max_playlists=s.max_playlists, dj_id=dj_id, music_source=s.music_source,
             source_artists=s.source_artists, source_albums=s.source_albums,
-            source_tracks=s.source_tracks, cron_schedule=s.cron_schedule,
+            source_tracks=s.source_tracks, excluded_artists=s.excluded_artists,
+            cron_schedule=s.cron_schedule,
             discovery_rate=s.discovery_rate, history_runs=s.history_runs,
             weather_postal_code=s.weather_postal_code, weather_rate=s.weather_rate,
         ))

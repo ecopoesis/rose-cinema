@@ -31,6 +31,9 @@ export const deleteRun = (runId) =>
   api(`/runs/${runId}`, { method: 'DELETE' });
 export const testPlaylist = (stationId) =>
   api(`/stations/${stationId}/test-playlist`, { method: 'POST' });
+export const fetchExclusions = () => api('/settings/exclusions');
+export const saveExclusions = (excludedArtists) =>
+  api('/settings/exclusions', { method: 'PUT', body: { excluded_artists: excludedArtists } });
 
 export async function uploadAlbumArt(stationId, file) {
   const form = new FormData();

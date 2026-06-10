@@ -77,6 +77,7 @@ Full backlog: <https://github.com/ecopoesis/rose-cinema/issues>
 | `dj_babble_rate` | 0..1 | 0 = "that was X by Y", 1 = stories + trivia |
 | `dj_max_length_secs` | 5–120 | per-segment cap |
 | `music_source` | string | seed text the LLM uses to assemble the tracklist |
+| `excluded_artists` | string list | artists never played on this station — not even as a featured guest or collaborator; cumulative with the global list (`PUT /api/settings/exclusions`, editable via "Excluded Artists" in the web UI) |
 
 ## Quick start — production (Linux server + Portainer)
 

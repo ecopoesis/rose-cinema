@@ -13,6 +13,7 @@ from rose_cinema.models import PlaylistRun, Station
 from rose_cinema.repositories import PlaylistRunRecord
 from rose_cinema.repositories.sql import SqlPlaylistRunRepository
 from rose_cinema.services.cleanup import trim_station_runs
+from rose_cinema.services.exclusions import get_global_excluded_artists, merge_exclusions
 from rose_cinema.services.music_assistant import get_music_assistant_client
 from rose_cinema.services.queue import EventQueue
 
@@ -132,6 +133,10 @@ class CronScheduler:
                     "source_artists": station.source_artists,
                     "source_albums": station.source_albums,
                     "source_tracks": station.source_tracks,
+                    "excluded_artists": merge_exclusions(
+                        await get_global_excluded_artists(session),
+                        station.excluded_artists,
+                    ),
                     "discovery_rate": station.discovery_rate,
                 },
             )

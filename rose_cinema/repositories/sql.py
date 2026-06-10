@@ -7,7 +7,9 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rose_cinema.models import DJ, Station, PlaylistRun, ListenPosition, CachedTrack, slugify
+from rose_cinema.models import (
+    DJ, Station, PlaylistRun, ListenPosition, CachedTrack, AppSetting, slugify,
+)
 from rose_cinema.repositories import (
     DJRecord,
     DJRepository,
@@ -19,6 +21,7 @@ from rose_cinema.repositories import (
     CachedTrackRepository,
     ListenPositionRecord,
     ListenPositionRepository,
+    AppSettingsRepository,
 )
 
 
@@ -51,6 +54,7 @@ def _station_to_record(s: Station) -> StationRecord:
         source_artists=s.source_artists,
         source_albums=s.source_albums,
         source_tracks=s.source_tracks,
+        excluded_artists=s.excluded_artists,
         album_art=s.album_art or "",
         cron_schedule=s.cron_schedule,
         discovery_rate=s.discovery_rate,
@@ -181,6 +185,7 @@ class SqlStationRepository(StationRepository):
             source_artists=record.source_artists,
             source_albums=record.source_albums,
             source_tracks=record.source_tracks,
+            excluded_artists=record.excluded_artists,
             album_art=record.album_art or None,
             cron_schedule=record.cron_schedule,
             discovery_rate=record.discovery_rate,
@@ -210,6 +215,7 @@ class SqlStationRepository(StationRepository):
         obj.source_artists = record.source_artists
         obj.source_albums = record.source_albums
         obj.source_tracks = record.source_tracks
+        obj.excluded_artists = record.excluded_artists
         obj.album_art = record.album_art or None
         obj.cron_schedule = record.cron_schedule
         obj.discovery_rate = record.discovery_rate
@@ -413,3 +419,25 @@ class SqlListenPositionRepository(ListenPositionRepository):
         await self._session.commit()
         obj = result.scalar_one()
         return _pos_to_record(obj)
+
+
+# ── App settings ───────────────────────────────────────────────────────
+
+
+class SqlAppSettingsRepository(AppSettingsRepository):
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def get(self, key: str):
+        obj = await self._session.get(AppSetting, key)
+        return obj.value if obj else None
+
+    async def set(self, key: str, value) -> None:
+        stmt = pg_insert(AppSetting).values(
+            key=key, value=value,
+        ).on_conflict_do_update(
+            index_elements=["key"],
+            set_={"value": value, "updated_at": func.now()},
+        )
+        await self._session.execute(stmt)
+        await self._session.commit()

@@ -157,3 +157,50 @@ async def test_pool_listing_includes_genre_tags():
     prompt = llm.calls[0][-1].content
     assert "{dream pop, shoegaze}" in prompt
     assert "{grunge, punk rock}" in prompt
+
+
+@pytest.mark.asyncio
+async def test_pool_path_filters_excluded_artists_including_collabs():
+    pool = _pool(
+        mk_track("T0", "Solo Song", "Drake"),
+        mk_track("T1", "Life Is Good (feat. Drake)", "Future"),
+        mk_track("T2", "Rich Flex", "Drake & 21 Savage"),
+        mk_track("T3", "Pink Moon", "Nick Drake"),
+        mk_track("T4", "Clean Song", "Someone Else"),
+    )
+    llm = FakeLLM(['{"picks": [0, 1]}'])
+    picker = TrackPicker(llm, catalog=None, seed_builder=FakeSeedBuilder(pool))
+
+    songs = await picker.pick(
+        music_source="seed", target_minutes=4, avg_song_secs=200,
+        excluded_artists=["Drake"],
+    )
+
+    ids = {s.apple_music_id for s in songs}
+    assert ids <= {"T3", "T4"}
+    listing = llm.calls[0][-1].content
+    assert "Solo Song" not in listing
+    assert "Rich Flex" not in listing
+    assert "Pink Moon" in listing
+
+
+@pytest.mark.asyncio
+async def test_llm_discovery_filters_excluded_artists():
+    llm = FakeLLM([
+        '[{"title": "Solo Song", "artist": "Drake", "duration_secs": 200},'
+        ' {"title": "Work (feat. Drake)", "artist": "Rihanna", "duration_secs": 200},'
+        ' {"title": "Pink Moon", "artist": "Nick Drake", "duration_secs": 200},'
+        ' {"title": "Clean Song", "artist": "Someone Else", "duration_secs": 200}]'
+    ])
+    picker = TrackPicker(llm, catalog=None, seed_builder=None)
+
+    songs = await picker.pick(
+        music_source="seed", target_minutes=10, avg_song_secs=200,
+        excluded_artists=["Drake"],
+    )
+
+    artists = [s.artist for s in songs]
+    assert artists == ["Nick Drake", "Someone Else"]
+    system_prompt = llm.calls[0][0].content
+    assert "BANNED ARTISTS" in system_prompt
+    assert "drake" in system_prompt

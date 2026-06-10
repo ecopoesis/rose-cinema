@@ -6,6 +6,7 @@ import re
 
 from rose_cinema.providers import LLMMessage, LLMProvider
 from rose_cinema.services.catalog import CatalogTrack, MusicCatalog
+from rose_cinema.services.exclusions import is_excluded, normalize_exclusions
 from rose_cinema.services.seed_pool import SeedPool, SeedPoolBuilder
 from rose_cinema.services.station_builder import SongMetadata
 
@@ -67,8 +68,10 @@ class TrackPicker:
         source_albums: list[str] | None = None,
         source_tracks: list[str] | None = None,
         discovery_rate: float = 0.5,
+        excluded_artists: list[str] | None = None,
     ) -> list[SongMetadata]:
         target_count = max(3, round((target_minutes * 60) / avg_song_secs))
+        excluded = normalize_exclusions(excluded_artists)
 
         if self._seed_builder is not None:
             pool = await self._seed_builder.build(
@@ -78,6 +81,11 @@ class TrackPicker:
                 source_tracks=source_tracks,
                 discovery_rate=discovery_rate,
             )
+            if excluded and pool.tracks:
+                before = len(pool.tracks)
+                pool.tracks = [t for t in pool.tracks if not is_excluded(t.title, t.artist, excluded)]
+                if len(pool.tracks) < before:
+                    logger.info("Excluded %d tracks by excluded artists from pool", before - len(pool.tracks))
             if pool.tracks:
                 if exclude_ids:
                     before = len(pool.tracks)
@@ -86,7 +94,9 @@ class TrackPicker:
                 return await self._pick_from_pool(pool, music_source, target_count)
             logger.info("seed_pool empty for %r — falling back to LLM-discovery", music_source)
 
-        return await self._pick_from_llm_discovery(music_source, target_count, exclude_ids)
+        return await self._pick_from_llm_discovery(
+            music_source, target_count, exclude_ids, excluded,
+        )
 
     # ── Pool-curation path ─────────────────────────────────────────────
 
@@ -208,12 +218,19 @@ class TrackPicker:
         music_source: str,
         target_count: int,
         exclude_ids: set[str] | None = None,
+        excluded_artists: set[str] | None = None,
     ) -> list[SongMetadata]:
         avoid_rule = ""
         if exclude_ids:
             avoid_rule = (
                 "- RECENTLY PLAYED: Do not include any tracks that were recently "
                 "played. Pick fresh songs the listener hasn't heard lately.\n"
+            )
+        if excluded_artists:
+            avoid_rule += (
+                f"- BANNED ARTISTS: {', '.join(sorted(excluded_artists))}. Never "
+                "include them — not as the main artist, not as a featured guest, "
+                "not in a collaboration.\n"
             )
         system = (
             "You are a music programmer for a radio station. Given a seed track, "
@@ -275,6 +292,11 @@ class TrackPicker:
 
         if self._catalog is not None:
             songs = await self._verify(songs)
+        if excluded_artists:
+            before = len(songs)
+            songs = [s for s in songs if not is_excluded(s.title, s.artist, excluded_artists)]
+            if len(songs) < before:
+                logger.info("Excluded %d tracks by excluded artists from LLM-discovery results", before - len(songs))
         if exclude_ids:
             before = len(songs)
             songs = [s for s in songs if not s.apple_music_id or s.apple_music_id not in exclude_ids]

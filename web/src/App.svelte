@@ -3,6 +3,7 @@
   import Modal from './Modal.svelte';
   import StationForm from './StationForm.svelte';
   import DJForm from './DJForm.svelte';
+  import ExclusionsForm from './ExclusionsForm.svelte';
   import * as api from './api.js';
 
   let activeTab = $state('stations');
@@ -44,6 +45,19 @@
   }
   function openDJForm(dj = null) {
     modal = { open: true, type: 'dj', data: dj };
+  }
+  async function openExclusions() {
+    try {
+      const current = await api.fetchExclusions();
+      modal = { open: true, type: 'exclusions', data: current.excluded_artists };
+    } catch (e) { showToast(e.message, true); }
+  }
+  async function handleSaveExclusions(artists) {
+    try {
+      const saved = await api.saveExclusions(artists);
+      showToast(`Global exclusions saved (${saved.excluded_artists.length} artists)`);
+      closeModal();
+    } catch (e) { showToast(e.message, true); }
   }
   function closeModal() {
     modal = { open: false, type: null, data: null };
@@ -274,6 +288,7 @@
   <div class="toolbar">
     <button class="btn btn-primary" onclick={() => openStationForm()}>+ New Station</button>
     <div class="spacer"></div>
+    <button class="btn btn-secondary" onclick={openExclusions}>Excluded Artists</button>
     <button class="btn btn-secondary" onclick={handleExport}>Export JSON</button>
     <button class="btn btn-secondary" onclick={() => importInput?.click()}>Import JSON</button>
     <input type="file" accept=".json" bind:this={importInput} onchange={handleImport} hidden>
@@ -378,11 +393,15 @@
   <Modal
     title={modal.type === 'station'
       ? (modal.data ? 'Edit Station' : 'New Station')
-      : (modal.data ? 'Edit DJ' : 'New DJ')}
+      : modal.type === 'exclusions'
+        ? 'Global Excluded Artists'
+        : (modal.data ? 'Edit DJ' : 'New DJ')}
     onclose={closeModal}
   >
     {#if modal.type === 'station'}
       <StationForm station={modal.data} {djs} onsave={handleSaveStation} oncancel={closeModal} />
+    {:else if modal.type === 'exclusions'}
+      <ExclusionsForm excluded={modal.data} onsave={handleSaveExclusions} oncancel={closeModal} />
     {:else}
       <DJForm dj={modal.data} onsave={handleSaveDJ} oncancel={closeModal} />
     {/if}

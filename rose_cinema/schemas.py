@@ -47,6 +47,7 @@ class StationCreate(BaseModel):
     source_artists: list[str] | None = None
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
+    excluded_artists: list[str] | None = None
     cron_schedule: str | None = None
     discovery_rate: float = Field(default=0.5, ge=0.0, le=1.0)
     history_runs: int = Field(default=3, ge=0, le=50)
@@ -68,6 +69,7 @@ class StationUpdate(BaseModel):
     source_artists: list[str] | None = None
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
+    excluded_artists: list[str] | None = None
     cron_schedule: str | None = None
     discovery_rate: float | None = Field(default=None, ge=0.0, le=1.0)
     history_runs: int | None = Field(default=None, ge=0, le=50)
@@ -89,6 +91,7 @@ class StationResponse(BaseModel):
     source_artists: list[str] | None = None
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
+    excluded_artists: list[str] | None = None
     cron_schedule: str | None = None
     discovery_rate: float
     history_runs: int
@@ -96,6 +99,13 @@ class StationResponse(BaseModel):
     weather_rate: float
     album_art: str
     slug: str
+
+
+# ── App settings ───────────────────────────────────────────────────────
+
+
+class ExclusionSettings(BaseModel):
+    excluded_artists: list[str] = Field(default_factory=list)
 
 
 # ── Test Playlist (track-only preview) ────────────────────────────────
@@ -223,6 +233,7 @@ class StationExport(BaseModel):
     source_artists: list[str] | None = None
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
+    excluded_artists: list[str] | None = None
     cron_schedule: str | None = None
     discovery_rate: float = Field(default=0.5, ge=0.0, le=1.0)
     history_runs: int = Field(default=3, ge=0, le=50)

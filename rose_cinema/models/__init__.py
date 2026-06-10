@@ -69,6 +69,9 @@ class Station(Base):
     source_albums: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     source_tracks: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
+    # Artists never to play (cumulative with the global list in app_settings)
+    excluded_artists: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
     album_art: Mapped[str | None] = mapped_column(String(200), nullable=True)
     slug: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
     cron_schedule: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -135,6 +138,16 @@ class GenerationEvent(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     run: Mapped[PlaylistRun] = relationship(back_populates="events")
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[dict | list | None] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class CachedTrack(Base):

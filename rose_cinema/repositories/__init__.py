@@ -32,6 +32,7 @@ class StationRecord:
     source_artists: list[str] | None = None
     source_albums: list[str] | None = None
     source_tracks: list[str] | None = None
+    excluded_artists: list[str] | None = None
     album_art: str = ""
     cron_schedule: str | None = None
     discovery_rate: float = 0.5
@@ -148,6 +149,14 @@ class CachedTrackRepository(ABC):
 
     @abstractmethod
     async def upsert(self, record: CachedTrackRecord) -> CachedTrackRecord: ...
+
+
+class AppSettingsRepository(ABC):
+    @abstractmethod
+    async def get(self, key: str): ...
+
+    @abstractmethod
+    async def set(self, key: str, value) -> None: ...
 
 
 class ListenPositionRepository(ABC):

@@ -17,6 +17,7 @@
   let source_artists = $state((init.source_artists ?? []).join('\n'));
   let source_albums = $state((init.source_albums ?? []).join('\n'));
   let source_tracks = $state((init.source_tracks ?? []).join('\n'));
+  let excluded_artists = $state((init.excluded_artists ?? []).join('\n'));
   let weather_postal_code = $state(init.weather_postal_code ?? '');
   let weather_rate = $state(init.weather_rate ?? 0);
   let cron_schedule = $state(init.cron_schedule ?? '');
@@ -68,6 +69,7 @@
         source_artists: artists.length ? artists : null,
         source_albums: albums.length ? albums : null,
         source_tracks: tracks.length ? tracks : null,
+        excluded_artists: linesToList(excluded_artists),
         weather_postal_code: weather_postal_code.trim() || null,
         weather_rate: Number(weather_rate),
         cron_schedule: cron_schedule.trim() || null,
@@ -129,6 +131,11 @@
           </div>
         </div>
       {/if}
+    </div>
+    <div class="field">
+      <label for="s-excluded">Excluded Artists <span class="hint">(one per line — never played, even in collabs; adds to the global list)</span></label>
+      <textarea id="s-excluded" bind:value={excluded_artists} rows="2"
+                placeholder="Drake"></textarea>
     </div>
     <div class="field">
       <label for="s-dj">DJ</label>
