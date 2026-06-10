@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     # Track cache (pre-downloaded Apple Music files for ezstream)
     tracks_dir: str = Field(default="data/tracks")
     streams_dir: str = Field(default="data/streams")
+    stream_mp3_dir: str = Field(default="data/stream_mp3")
     track_download_delay: float = Field(default=3.0)
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

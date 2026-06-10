@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
+import tempfile
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -11,6 +14,50 @@ import mutagen
 from rose_cinema.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Files whose playback starts within this lead are converted before the
+# stream starts; everything later converts in the background while earlier
+# entries play (conversion runs far faster than realtime).
+_SYNC_CONVERT_LEAD_SECS = 120.0
+
+
+def _mp3_cache_path(src: Path) -> Path:
+    digest = hashlib.sha1(str(src).encode()).hexdigest()[:16]
+    return Path(settings.stream_mp3_dir) / f"{digest}.mp3"
+
+
+async def _convert_to_mp3(src: Path, dest: Path) -> None:
+    if dest.exists() and dest.stat().st_size > 0:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(suffix=".mp3", dir=str(dest.parent))
+    os.close(fd)
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(src),
+        "-ar", "44100", "-ac", "2",
+        "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
+        "-f", "mp3", tmp,
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        proc.kill()
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    if proc.returncode != 0 or os.path.getsize(tmp) == 0:
+        err = stderr.decode(errors="replace")[:300]
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise RuntimeError(f"mp3 conversion failed for {src.name}: {err}")
+    os.rename(tmp, dest)
+    logger.info("Converted for streaming: %s -> %s", src.name, dest.name)
 
 
 class EzstreamSession:
@@ -38,6 +85,7 @@ class EzstreamSession:
         self._subscribers: list[asyncio.Queue[bytes | None]] = []
         self._pump_task: asyncio.Task[None] | None = None
         self._stop_timer: asyncio.Task[None] | None = None
+        self._convert_task: asyncio.Task[None] | None = None
 
     @property
     def current_entry(self) -> dict:
@@ -45,12 +93,21 @@ class EzstreamSession:
             return self.entries[self._current_entry_idx]
         return {}
 
-    def _build_concat_and_schedule(
+    async def _build_concat_and_schedule(
         self, work_dir: Path,
     ) -> tuple[Path, list[tuple[float, int]]]:
+        """Build the ffmpeg concat list, normalized to all-MP3 inputs.
+
+        The concat demuxer requires every file to share one codec. Tracks are
+        cached on disk as AAC .m4a, DJ segments as .mp3 — so non-MP3 files get
+        a one-time MP3 conversion cached under stream_mp3_dir. Files needed
+        soon convert before start; the rest convert in the background, in
+        playback order, well ahead of the realtime-paced stream.
+        """
         concat_file = work_dir / "concat.txt"
         lines: list[str] = []
         schedule: list[tuple[float, int]] = []
+        pending: list[tuple[Path, Path]] = []
         cumulative = 0.0
 
         for i, entry in enumerate(
@@ -71,25 +128,49 @@ class EzstreamSession:
             else:
                 continue
 
-            escaped = str(path).replace("'", "'\\''")
-            lines.append(f"file '{escaped}'")
-            schedule.append((cumulative, i))
-
             try:
                 duration = mutagen.File(str(path)).info.length
             except Exception:
                 duration = entry.get("duration_secs") or 30.0
+
+            stream_path = path
+            if path.suffix.lower() != ".mp3":
+                stream_path = _mp3_cache_path(path)
+                if not (stream_path.exists() and stream_path.stat().st_size > 0):
+                    if cumulative < _SYNC_CONVERT_LEAD_SECS:
+                        try:
+                            await _convert_to_mp3(path, stream_path)
+                        except Exception:
+                            logger.exception("Skipping unconvertible track: %s", path.name)
+                            continue
+                    else:
+                        pending.append((path, stream_path))
+
+            escaped = str(stream_path).replace("'", "'\\''")
+            lines.append(f"file '{escaped}'")
+            schedule.append((cumulative, i))
             cumulative += duration
 
         concat_file.write_text("\n".join(lines) + "\n")
+        if pending:
+            self._convert_task = asyncio.create_task(self._convert_pending(pending))
         return concat_file, schedule
+
+    async def _convert_pending(self, pending: list[tuple[Path, Path]]) -> None:
+        for src, dest in pending:
+            try:
+                await _convert_to_mp3(src, dest)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Background mp3 conversion failed: %s", src.name)
 
     async def start(self) -> None:
         work_dir = Path(settings.streams_dir) / f"{self.station_id}_{self.uid}"
         work_dir.mkdir(parents=True, exist_ok=True)
         self._work_dir = work_dir
 
-        concat_file, self._schedule = self._build_concat_and_schedule(work_dir)
+        concat_file, self._schedule = await self._build_concat_and_schedule(work_dir)
 
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -97,8 +178,8 @@ class EzstreamSession:
             "-f", "concat", "-safe", "0", "-i", str(concat_file),
             "-af", "loudnorm=I=-14:TP=-1:LRA=11",
             "-ar", "44100", "-ac", "2",
-            "-c:a", "aac", "-b:a", settings.native_stream_bitrate,
-            "-f", "adts", "pipe:1",
+            "-c:a", "libmp3lame", "-b:a", settings.native_stream_bitrate,
+            "-f", "mp3", "pipe:1",
         ]
 
         self._proc = await asyncio.create_subprocess_exec(
@@ -232,6 +313,12 @@ class EzstreamSession:
                 self._stop_timer = asyncio.create_task(self._delayed_stop())
 
     async def stop(self) -> None:
+        if self._convert_task and not self._convert_task.done():
+            self._convert_task.cancel()
+            try:
+                await self._convert_task
+            except asyncio.CancelledError:
+                pass
         if self._pump_task and not self._pump_task.done():
             self._pump_task.cancel()
             try:

@@ -1069,7 +1069,7 @@ async def listen_native_stream(
 
     return StreamingResponse(
         generate(),
-        media_type="audio/aac",
+        media_type="audio/mpeg",
         headers=headers,
     )
 
