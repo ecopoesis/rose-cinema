@@ -422,3 +422,94 @@ async def test_multi_artist_genre_threshold_scales_with_variety():
         source_artists=["Rock A", "Rock B"], genre_variety=1.0,
     )
     assert "Jazzer" in {a.name for a in pool.artists}
+
+
+# ── ListenBrainz blending ──────────────────────────────────────────────
+
+
+from rose_cinema.repositories import ArtistLinkRecord  # noqa: E402
+from rose_cinema.services.listenbrainz import LBSimilarArtist  # noqa: E402
+
+from tests._fakes import FakeGraphStore, FakeListenBrainz, RaisingListenBrainz  # noqa: E402
+
+
+def _lb_fixture():
+    seed = mk_artist("1", "Seed Artist", "Alternative")
+    apple_kin = mk_artist("2", "Apple Kin", "Alternative")
+    lb_kin = mk_artist("7", "LB Kin", "Alternative")
+    catalog = FakeCatalog(
+        artists_by_query={"seed artist": [seed], "lb kin": [lb_kin]},
+        artist_views={
+            "1": _views(seed, [mk_track("10", "S", seed.name)], [apple_kin]),
+            "2": _views(apple_kin, [mk_track("20", "A", apple_kin.name)]),
+            "7": _views(lb_kin, [mk_track("70", "L", lb_kin.name)]),
+        },
+    )
+    graph = FakeGraphStore()
+    graph.links["seed artist"] = ArtistLinkRecord(
+        name_key="seed artist", name="Seed Artist", mbid="mb-seed",
+    )
+    return seed, catalog, graph
+
+
+@pytest.mark.asyncio
+async def test_lb_blend_unions_similar_artists():
+    _, catalog, graph = _lb_fixture()
+    lb = FakeListenBrainz({"mb-seed": [LBSimilarArtist("mb-kin", "LB Kin", 90)]})
+    builder = SeedPoolBuilder(catalog, FakeLLM([]), lb_client=lb, graph_store=graph)
+
+    pool = await builder.build("Seed Artist", target_count=10)
+
+    names = {a.name for a in pool.artists}
+    assert {"Apple Kin", "LB Kin"} <= names
+    link = graph.links["lb kin"]
+    assert link.apple_music_id == "7"
+    assert link.mbid == "mb-kin"
+    assert graph.similar["mb-seed"] == [
+        {"artist_mbid": "mb-kin", "name": "LB Kin", "score": 90}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_lb_cache_short_circuits_client():
+    _, catalog, graph = _lb_fixture()
+    graph.similar["mb-seed"] = [{"artist_mbid": "mb-kin", "name": "LB Kin", "score": 90}]
+    lb = FakeListenBrainz()
+    builder = SeedPoolBuilder(catalog, FakeLLM([]), lb_client=lb, graph_store=graph)
+
+    pool = await builder.build("Seed Artist", target_count=10)
+
+    assert lb.calls == []
+    assert "LB Kin" in {a.name for a in pool.artists}
+
+
+@pytest.mark.asyncio
+async def test_lb_failure_degrades_to_apple_only():
+    _, catalog, graph = _lb_fixture()
+    builder = SeedPoolBuilder(
+        catalog, FakeLLM([]), lb_client=RaisingListenBrainz(), graph_store=graph,
+    )
+
+    pool = await builder.build("Seed Artist", target_count=10)
+
+    names = {a.name for a in pool.artists}
+    assert "Apple Kin" in names
+    assert "LB Kin" not in names
+
+
+@pytest.mark.asyncio
+async def test_lb_resolution_budget_capped():
+    _, catalog, graph = _lb_fixture()
+    entries = [LBSimilarArtist(f"mb-{i}", f"Unknown {i}", 100 - i) for i in range(12)]
+    lb = FakeListenBrainz({"mb-seed": entries})
+    builder = SeedPoolBuilder(catalog, FakeLLM([]), lb_client=lb, graph_store=graph)
+
+    await builder.build("Seed Artist", target_count=10)
+
+    lb_lookups = [
+        c for c in catalog.calls
+        if c[0] == "search_artists" and c[1].startswith("Unknown")
+    ]
+    assert len(lb_lookups) == 6
+    # Misses are negative-cached so the next run spends no budget on them.
+    assert graph.links["unknown 0"].apple_music_id is None

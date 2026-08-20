@@ -115,3 +115,51 @@ class FakeMusicBrainz:
     async def get_artist_tags(self, artist_name: str) -> tuple[str, ...]:
         self.calls.append(artist_name)
         return self._tags.get(artist_name.lower().strip(), ())
+
+
+class FakeListenBrainz:
+    """Canned similar-artists lists keyed by MBID."""
+
+    def __init__(self, similar_by_mbid: dict[str, list] | None = None):
+        self._similar = similar_by_mbid or {}
+        self.calls: list[str] = []
+
+    async def get_similar_artists(self, artist_mbid: str):
+        self.calls.append(artist_mbid)
+        return list(self._similar.get(artist_mbid, []))
+
+
+class RaisingListenBrainz:
+
+    async def get_similar_artists(self, artist_mbid: str):
+        raise RuntimeError("LB down")
+
+
+class FakeGraphStore:
+    """In-memory stand-in for ArtistGraphStore."""
+
+    def __init__(self):
+        from rose_cinema.repositories import ArtistLinkRecord
+        self._record_cls = ArtistLinkRecord
+        self.links: dict = {}
+        self.similar: dict[str, list[dict]] = {}
+
+    async def get_link(self, artist_name: str):
+        return self.links.get(artist_name.lower().strip())
+
+    async def upsert_link(self, artist_name: str, *, mbid=None, apple_music_id=None):
+        key = artist_name.lower().strip()
+        existing = self.links.get(key)
+        if existing:
+            mbid = mbid or existing.mbid
+            apple_music_id = apple_music_id or existing.apple_music_id
+        self.links[key] = self._record_cls(
+            name_key=key, name=artist_name.strip(),
+            mbid=mbid, apple_music_id=apple_music_id,
+        )
+
+    async def get_similar(self, artist_mbid: str):
+        return self.similar.get(artist_mbid)
+
+    async def put_similar(self, artist_mbid: str, payload: list[dict]):
+        self.similar[artist_mbid] = list(payload)

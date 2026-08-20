@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 from datetime import date as date_type
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rose_cinema.models import (
-    DJ, Station, PlaylistRun, ListenPosition, CachedTrack, AppSetting, slugify,
+    DJ, Station, PlaylistRun, ListenPosition, CachedTrack, AppSetting,
+    ArtistLink, LbSimilarCache, RecordingResolution, slugify,
 )
 from rose_cinema.repositories import (
     DJRecord,
@@ -22,6 +23,11 @@ from rose_cinema.repositories import (
     ListenPositionRecord,
     ListenPositionRepository,
     AppSettingsRepository,
+    ArtistLinkRecord,
+    ArtistLinkRepository,
+    LbSimilarRepository,
+    RecordingResolutionRecord,
+    RecordingResolutionRepository,
 )
 
 
@@ -450,3 +456,145 @@ class SqlAppSettingsRepository(AppSettingsRepository):
         )
         await self._session.execute(stmt)
         await self._session.commit()
+
+
+# ── Artist / ListenBrainz / recording caches ──────────────────────────
+
+
+def _link_to_record(link: ArtistLink) -> ArtistLinkRecord:
+    return ArtistLinkRecord(
+        name_key=link.name_key,
+        name=link.name,
+        mbid=link.mbid,
+        apple_music_id=link.apple_music_id,
+    )
+
+
+class SqlArtistLinkRepository(ArtistLinkRepository):
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def get(self, name_key: str) -> ArtistLinkRecord | None:
+        fresh = or_(
+            and_(
+                ArtistLink.mbid.isnot(None),
+                ArtistLink.updated_at > func.now() - text("interval '90 days'"),
+            ),
+            and_(
+                ArtistLink.mbid.is_(None),
+                ArtistLink.updated_at > func.now() - text("interval '7 days'"),
+            ),
+        )
+        result = await self._session.execute(
+            select(ArtistLink).where(ArtistLink.name_key == name_key, fresh)
+        )
+        obj = result.scalar_one_or_none()
+        return _link_to_record(obj) if obj else None
+
+    async def upsert(self, record: ArtistLinkRecord) -> ArtistLinkRecord:
+        stmt = pg_insert(ArtistLink).values(
+            name_key=record.name_key,
+            name=record.name,
+            mbid=record.mbid,
+            apple_music_id=record.apple_music_id,
+        )
+        # Never clobber a known id with NULL — positive info wins.
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["name_key"],
+            set_={
+                "name": record.name,
+                "mbid": func.coalesce(stmt.excluded.mbid, ArtistLink.mbid),
+                "apple_music_id": func.coalesce(
+                    stmt.excluded.apple_music_id, ArtistLink.apple_music_id
+                ),
+                "updated_at": func.now(),
+            },
+        ).returning(ArtistLink)
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        return _link_to_record(result.scalar_one())
+
+
+class SqlLbSimilarRepository(LbSimilarRepository):
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def get(self, artist_mbid: str) -> list[dict] | None:
+        fresh = or_(
+            and_(
+                func.jsonb_array_length(LbSimilarCache.payload) > 0,
+                LbSimilarCache.fetched_at > func.now() - text("interval '30 days'"),
+            ),
+            and_(
+                func.jsonb_array_length(LbSimilarCache.payload) == 0,
+                LbSimilarCache.fetched_at > func.now() - text("interval '7 days'"),
+            ),
+        )
+        result = await self._session.execute(
+            select(LbSimilarCache).where(LbSimilarCache.artist_mbid == artist_mbid, fresh)
+        )
+        obj = result.scalar_one_or_none()
+        return list(obj.payload) if obj else None
+
+    async def put(self, artist_mbid: str, payload: list[dict]) -> None:
+        stmt = pg_insert(LbSimilarCache).values(
+            artist_mbid=artist_mbid, payload=payload,
+        ).on_conflict_do_update(
+            index_elements=["artist_mbid"],
+            set_={"payload": payload, "fetched_at": func.now()},
+        )
+        await self._session.execute(stmt)
+        await self._session.commit()
+
+
+def _resolution_to_record(r: RecordingResolution) -> RecordingResolutionRecord:
+    return RecordingResolutionRecord(
+        recording_mbid=r.recording_mbid,
+        title=r.title,
+        artist=r.artist,
+        apple_music_id=r.apple_music_id,
+        payload=r.payload,
+    )
+
+
+class SqlRecordingResolutionRepository(RecordingResolutionRepository):
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def get_many(self, recording_mbids: list[str]) -> dict[str, RecordingResolutionRecord]:
+        if not recording_mbids:
+            return {}
+        fresh = or_(
+            RecordingResolution.apple_music_id.isnot(None),
+            RecordingResolution.resolved_at > func.now() - text("interval '30 days'"),
+        )
+        result = await self._session.execute(
+            select(RecordingResolution).where(
+                RecordingResolution.recording_mbid.in_(recording_mbids), fresh,
+            )
+        )
+        return {
+            r.recording_mbid: _resolution_to_record(r)
+            for r in result.scalars().all()
+        }
+
+    async def upsert(self, record: RecordingResolutionRecord) -> RecordingResolutionRecord:
+        stmt = pg_insert(RecordingResolution).values(
+            recording_mbid=record.recording_mbid,
+            title=record.title,
+            artist=record.artist,
+            apple_music_id=record.apple_music_id,
+            payload=record.payload,
+        ).on_conflict_do_update(
+            index_elements=["recording_mbid"],
+            set_={
+                "title": record.title,
+                "artist": record.artist,
+                "apple_music_id": record.apple_music_id,
+                "payload": record.payload,
+                "resolved_at": func.now(),
+            },
+        ).returning(RecordingResolution)
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        return _resolution_to_record(result.scalar_one())

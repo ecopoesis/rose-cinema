@@ -593,6 +593,8 @@ async def test_playlist(
     import time as _time
 
     from rose_cinema.providers.factory import get_llm_provider
+    from rose_cinema.services.artist_graph import ArtistGraphStore
+    from rose_cinema.services.listenbrainz import get_listenbrainz_client
     from rose_cinema.services.musicbrainz import get_musicbrainz_client
     from rose_cinema.services.seed_pool import SeedPoolBuilder
     from rose_cinema.services.track_picker import TrackPicker
@@ -601,7 +603,11 @@ async def test_playlist(
     llm = get_llm_provider()
     catalog = get_music_catalog()
     mb_client = get_musicbrainz_client()
-    seed_builder = SeedPoolBuilder(catalog, llm, mb_client) if catalog else None
+    seed_builder = SeedPoolBuilder(
+        catalog, llm, mb_client,
+        lb_client=get_listenbrainz_client(),
+        graph_store=ArtistGraphStore(async_session),
+    ) if catalog else None
 
     run_repo = SqlPlaylistRunRepository(session)
     exclude_ids = (

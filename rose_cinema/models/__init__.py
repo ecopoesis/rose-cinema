@@ -153,6 +153,43 @@ class AppSetting(Base):
     )
 
 
+class ArtistLink(Base):
+    """Cached artist-name → MBID / Apple Music ID mapping. mbid NULL = negative cache."""
+
+    __tablename__ = "artist_links"
+
+    name_key: Mapped[str] = mapped_column(String(300), primary_key=True)
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    mbid: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    apple_music_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class LbSimilarCache(Base):
+    """Cached ListenBrainz Labs similar-artists payload per artist MBID."""
+
+    __tablename__ = "lb_similar_cache"
+
+    artist_mbid: Mapped[str] = mapped_column(String(36), primary_key=True)
+    payload: Mapped[list] = mapped_column(JSONB, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class RecordingResolution(Base):
+    """MB recording → Apple Music track resolution. apple_music_id NULL = search miss."""
+
+    __tablename__ = "recording_resolutions"
+
+    recording_mbid: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    artist: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    apple_music_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    resolved_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class CachedTrack(Base):
     __tablename__ = "cached_tracks"
 

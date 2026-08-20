@@ -48,6 +48,20 @@ class MusicBrainzClient:
             logger.warning("MusicBrainz lookup failed for %r", artist_name, exc_info=True)
             return ()
 
+    async def get_artist_mbid(self, artist_name: str) -> str | None:
+        try:
+            return await self._search_artist(artist_name)
+        except Exception:
+            logger.warning("MusicBrainz MBID lookup failed for %r", artist_name, exc_info=True)
+            return None
+
+    async def get_artist_tags_by_mbid(self, mbid: str) -> tuple[str, ...]:
+        try:
+            return await self._lookup_tags(mbid)
+        except Exception:
+            logger.warning("MusicBrainz tag lookup failed for mbid %r", mbid, exc_info=True)
+            return ()
+
     async def _search_artist(self, name: str) -> str | None:
         key = _normalize_name(name)
         if key in self._name_to_mbid:

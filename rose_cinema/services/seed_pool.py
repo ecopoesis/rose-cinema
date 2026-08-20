@@ -58,6 +58,8 @@ _SIMILAR_ARTIST_PICK = 8
 _SIMILAR_ARTIST_TOP_SONGS = 12
 _SEED_ARTIST_TOP_SONGS = 10
 _FETCH_CONCURRENCY = 6
+_LB_SIMILAR_TAKE = 20
+_LB_RESOLVE_BUDGET = 6
 
 
 class SeedPoolBuilder:
@@ -77,10 +79,14 @@ class SeedPoolBuilder:
         catalog: MusicCatalog,
         llm: LLMProvider,
         mb_client: object | None = None,
+        lb_client: object | None = None,
+        graph_store: object | None = None,
     ):
         self._catalog = catalog
         self._llm = llm
         self._mb = mb_client
+        self._lb = lb_client
+        self._graph = graph_store
 
     async def build(
         self,
@@ -221,9 +227,11 @@ class SeedPoolBuilder:
                     similar_artists=0,
                 )
 
-        similar = _genre_gate_similar(
-            list(seed_views.similar_artists), seed_views.artist, genre_variety,
-        )
+        apple_similar = list(seed_views.similar_artists)
+        lb_similar = await self._lb_similar_candidates(seed_views.artist, apple_similar)
+        candidates = _interleave(apple_similar, lb_similar)
+
+        similar = _genre_gate_similar(candidates, seed_views.artist, genre_variety)
         if len(similar) > _SIMILAR_ARTIST_PICK:
             similar = random.sample(similar, _SIMILAR_ARTIST_PICK)
 
@@ -310,6 +318,86 @@ class SeedPoolBuilder:
             artists_seen.setdefault(v.artist.apple_music_id, v.artist)
             for t in v.top_songs[:_DEFAULT_PER_ARTIST_POOL_CAP]:
                 by_artist[v.artist.apple_music_id].append(t)
+
+    # ── ListenBrainz similar-artist blending ──────────────────────────
+
+    async def _artist_mbid(self, artist_name: str) -> str | None:
+        if self._graph is not None:
+            link = await self._graph.get_link(artist_name)
+            if link is not None:
+                return link.mbid
+        if self._mb is None or not hasattr(self._mb, "get_artist_mbid"):
+            return None
+        mbid = await self._mb.get_artist_mbid(artist_name)
+        if self._graph is not None:
+            await self._graph.upsert_link(artist_name, mbid=mbid)
+        return mbid
+
+    async def _lb_similar_candidates(
+        self, seed_artist: CatalogArtist, known: list[CatalogArtist],
+    ) -> list[CatalogArtist]:
+        """Similar artists from ListenBrainz, resolved to Apple catalog artists.
+
+        Every failure path returns [] so the pool degrades to Apple-only.
+        """
+        if self._lb is None or self._graph is None:
+            return []
+        try:
+            mbid = await self._artist_mbid(seed_artist.name)
+            if not mbid:
+                return []
+
+            entries = await self._graph.get_similar(mbid)
+            if entries is None:
+                fetched = await self._lb.get_similar_artists(mbid)
+                entries = [
+                    {"artist_mbid": a.mbid, "name": a.name, "score": a.score}
+                    for a in fetched
+                ]
+                await self._graph.put_similar(mbid, entries)
+
+            known_names = {a.name.lower().strip() for a in known}
+            known_names.add(seed_artist.name.lower().strip())
+
+            resolved: list[CatalogArtist] = []
+            budget = _LB_RESOLVE_BUDGET
+            for e in entries[:_LB_SIMILAR_TAKE]:
+                name = str(e.get("name") or "").strip()
+                if not name or name.lower() in known_names:
+                    continue
+                link = await self._graph.get_link(name)
+                if link is not None and link.apple_music_id:
+                    resolved.append(CatalogArtist(
+                        apple_music_id=link.apple_music_id, name=link.name or name,
+                    ))
+                    continue
+                if link is not None and link.apple_music_id is None and link.mbid:
+                    # Known artist, previous Apple resolution missed — skip quietly.
+                    continue
+                if budget <= 0:
+                    continue
+                budget -= 1
+                matches = await self._catalog.search_artists(name, limit=1)
+                apple = matches[0] if matches else None
+                await self._graph.upsert_link(
+                    name,
+                    mbid=str(e.get("artist_mbid") or "") or None,
+                    apple_music_id=apple.apple_music_id if apple else None,
+                )
+                if apple:
+                    resolved.append(apple)
+            if resolved:
+                logger.info(
+                    "ListenBrainz blend: +%d similar artists for %r",
+                    len(resolved), seed_artist.name,
+                )
+            return resolved
+        except Exception:
+            logger.warning(
+                "ListenBrainz blend failed for %r — Apple-only pool",
+                seed_artist.name, exc_info=True,
+            )
+            return []
 
     # ── Pre-parse: extract structured intent from descriptive prompts ──
 
@@ -531,13 +619,22 @@ class SeedPoolBuilder:
         if self._mb is None:
             return
 
+        use_links = (
+            self._graph is not None
+            and hasattr(self._mb, "get_artist_tags_by_mbid")
+        )
+
         seen_keys: set[str] = set()
         for a in pool.artists:
             key = a.name.lower().strip()
             if key in seen_keys:
                 continue
             seen_keys.add(key)
-            mb_tags = await self._mb.get_artist_tags(a.name)
+            if use_links:
+                mbid = await self._artist_mbid(a.name)
+                mb_tags = await self._mb.get_artist_tags_by_mbid(mbid) if mbid else ()
+            else:
+                mb_tags = await self._mb.get_artist_tags(a.name)
             if mb_tags:
                 existing = set(pool.artist_tags.get(key, ()))
                 merged = list(mb_tags) + [
@@ -667,6 +764,22 @@ class SeedPoolBuilder:
             artists=artists,
             source=source,
         )
+
+
+def _interleave(a: list[CatalogArtist], b: list[CatalogArtist]) -> list[CatalogArtist]:
+    """Alternate two candidate lists, dropping duplicates by Apple ID."""
+    out: list[CatalogArtist] = []
+    seen: set[str] = set()
+    for i in range(max(len(a), len(b))):
+        for src in (a, b):
+            if i < len(src):
+                artist = src[i]
+                if artist.apple_music_id and artist.apple_music_id in seen:
+                    continue
+                if artist.apple_music_id:
+                    seen.add(artist.apple_music_id)
+                out.append(artist)
+    return out
 
 
 def _genre_gate_similar(

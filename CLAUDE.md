@@ -29,7 +29,8 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 - `LLMProvider` / `TTSProvider` — abstract base classes in `providers/__init__.py`
 - `MusicCatalog` (abstract) / `MusicKitCatalog` (concrete) — `services/catalog.py` + `services/musickit.py`
 - `DJRepository` / `StationRepository` / `PlaylistRunRepository` — abstract in `repositories/__init__.py`
-- `SeedPoolBuilder` — `services/seed_pool.py`. Resolves `music_source` to an artist (or to an artist via track-name lookup, or to genre IDs via an LLM theme map). Fans out via Apple Music's `similar-artists` and `top-songs` views (or genre charts) into a catalog-grounded candidate pool. In-memory TTL cache (24h). Falls through to legacy LLM-discovery only when nothing resolves.
+- `SeedPoolBuilder` — `services/seed_pool.py`. Resolves `music_source` to an artist (or to an artist via track-name lookup, or to genre IDs via an LLM theme map). Fans out via Apple Music's `similar-artists` and `top-songs` views (or genre charts) into a catalog-grounded candidate pool, blending in ListenBrainz Labs similar-artists (MBID-keyed, Postgres-cached via `ArtistGraphStore` in `services/artist_graph.py` — tables `artist_links` + `lb_similar_cache`). Variety sliders shape the pool: genre gates similar artists, year applies a hard era window at low values. Falls through to legacy LLM-discovery only when nothing resolves.
+- `ListenBrainzClient` — `services/listenbrainz.py`. Labs API similar-artists (free, no key). Gated on `LISTENBRAINZ_ENABLED` (default true); MBID resolution needs `MUSICBRAINZ_USER_AGENT`.
 - `TrackPicker` — `services/track_picker.py`. With a pool: LLM picks indices, then per-artist cap (2) + deterministic top-up. Without a pool (fallback): legacy LLM-proposes → MusicKit verifies → cap.
 - `EventQueue` / `QueueWorker` — `services/queue.py`. PG LISTEN/NOTIFY queue with `FOR UPDATE SKIP LOCKED` claiming. Generation is decomposed into discrete steps (pick_tracks → generate scripts → synthesize audio → finalize → MA ingest). Each step is a `GenerationEvent` row with retry logic. Chain dispatch triggers downstream steps on completion. Crash recovery resets stale `processing` events on startup.
 - `step_handlers` — `services/step_handlers.py`. One async function per step type. Thin wrappers calling existing service code (`TrackPicker`, `DJScriptService`, TTS providers, MA client).
@@ -63,7 +64,7 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 - `GET`/`PUT /api/settings/exclusions` — global excluded-artists list (app_settings table); merged with per-station `excluded_artists` at generation time
 - Queue worker with PG LISTEN/NOTIFY — 10 step types, retry up to 3x, crash recovery on startup
 - Web UI mounted at `/` — list stations, "Generate" button (polls for progress)
-- Alembic migrations 001–016
+- Alembic migrations 001–017
 - Docker stack: PostgreSQL 17 + radiobot, Portainer-managed
 
 ## Notable backlog (GitHub issues)

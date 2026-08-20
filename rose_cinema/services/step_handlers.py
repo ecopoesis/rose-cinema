@@ -48,15 +48,22 @@ async def handle_pick_tracks(payload: dict) -> dict:
     length_minutes = payload["length_minutes"]
     exclude_ids = set(payload.get("exclude_ids", []))
 
+    from rose_cinema.database import async_session
     from rose_cinema.services.track_picker import TrackPicker
     from rose_cinema.services.seed_pool import SeedPoolBuilder
     from rose_cinema.services.musickit import get_music_catalog
     from rose_cinema.services.musicbrainz import get_musicbrainz_client
+    from rose_cinema.services.listenbrainz import get_listenbrainz_client
+    from rose_cinema.services.artist_graph import ArtistGraphStore
 
     llm = get_llm_provider()
     catalog = get_music_catalog()
     mb_client = get_musicbrainz_client()
-    seed_builder = SeedPoolBuilder(catalog, llm, mb_client) if catalog else None
+    seed_builder = SeedPoolBuilder(
+        catalog, llm, mb_client,
+        lb_client=get_listenbrainz_client(),
+        graph_store=ArtistGraphStore(async_session),
+    ) if catalog else None
 
     songs = await TrackPicker(llm, catalog, seed_builder).pick(
         music_source=music_source,

@@ -68,6 +68,23 @@ class CachedTrackRecord:
 
 
 @dataclass
+class ArtistLinkRecord:
+    name_key: str = ""
+    name: str = ""
+    mbid: str | None = None
+    apple_music_id: str | None = None
+
+
+@dataclass
+class RecordingResolutionRecord:
+    recording_mbid: str = ""
+    title: str = ""
+    artist: str = ""
+    apple_music_id: str | None = None
+    payload: dict | None = None
+
+
+@dataclass
 class PlaylistRunRecord:
     id: str = ""
     station_id: str = ""
@@ -168,3 +185,37 @@ class ListenPositionRepository(ABC):
 
     @abstractmethod
     async def upsert_position(self, record: ListenPositionRecord) -> ListenPositionRecord: ...
+
+
+class ArtistLinkRepository(ABC):
+    """Cached artist-name → MBID / Apple Music ID mapping.
+
+    get() returns None for missing rows AND stale rows (negative entries older
+    than 7 days, positive ones older than 90), so callers re-resolve and upsert.
+    """
+
+    @abstractmethod
+    async def get(self, name_key: str) -> ArtistLinkRecord | None: ...
+
+    @abstractmethod
+    async def upsert(self, record: ArtistLinkRecord) -> ArtistLinkRecord: ...
+
+
+class LbSimilarRepository(ABC):
+    """Cached ListenBrainz similar-artists payloads; get() hides stale rows."""
+
+    @abstractmethod
+    async def get(self, artist_mbid: str) -> list[dict] | None: ...
+
+    @abstractmethod
+    async def put(self, artist_mbid: str, payload: list[dict]) -> None: ...
+
+
+class RecordingResolutionRepository(ABC):
+    """MB recording → Apple track resolutions; misses expire, hits are permanent."""
+
+    @abstractmethod
+    async def get_many(self, recording_mbids: list[str]) -> dict[str, RecordingResolutionRecord]: ...
+
+    @abstractmethod
+    async def upsert(self, record: RecordingResolutionRecord) -> RecordingResolutionRecord: ...

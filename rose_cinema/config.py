@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     # MusicBrainz tag enrichment — set to "RoseCinema/1.0 (you@email)" to enable
     musicbrainz_user_agent: str = Field(default="")
 
+    # ListenBrainz Labs similar-artists (free, no key; cached in Postgres)
+    listenbrainz_enabled: bool = Field(default=True)
+    listenbrainz_base_url: str = Field(default="https://labs.api.listenbrainz.org")
+    listenbrainz_algorithm: str = Field(
+        default="session_based_days_1825_session_300_contribution_3_threshold_10_limit_100_filter_True_skip_30"
+    )
+
     # Music Assistant (playback)
     ma_url: str = Field(default="")           # e.g. http://server03.local:8095
     ma_token: str = Field(default="")
