@@ -513,3 +513,108 @@ async def test_lb_resolution_budget_capped():
     assert len(lb_lookups) == 6
     # Misses are negative-cached so the next run spends no budget on them.
     assert graph.links["unknown 0"].apple_music_id is None
+
+
+# ── Deep cuts (popularity_variety) ─────────────────────────────────────
+
+
+from rose_cinema.repositories import RecordingResolutionRecord  # noqa: E402
+from rose_cinema.services.mb_mirror import MBRecording  # noqa: E402
+
+from tests._fakes import FakeMirror  # noqa: E402
+
+
+def _deep_cut_fixture():
+    seed = mk_artist("1", "Seed Artist")
+    deep_tracks = {
+        f"deep {i}": mk_track(f"D{i}", f"Deep {i}", "Seed Artist", "1998")
+        for i in range(5)
+    }
+    catalog = FakeCatalog(
+        artists_by_query={"seed artist": [seed]},
+        songs_by_query={
+            f"deep {i} seed artist": [deep_tracks[f"deep {i}"]] for i in range(5)
+        },
+        artist_views={
+            "1": _views(seed, [mk_track(f"1{i}", f"Hit {i}", seed.name) for i in range(10)]),
+        },
+    )
+    mirror = FakeMirror(
+        mbid_by_name={"seed artist": "mb-seed"},
+        discography_by_mbid={
+            "mb-seed": [
+                MBRecording(f"rec-{i}", f"Deep {i}", 1998, "Album", "Deep LP")
+                for i in range(5)
+            ],
+        },
+    )
+    return catalog, mirror, FakeGraphStore()
+
+
+@pytest.mark.asyncio
+async def test_deep_cuts_replace_top_song_slots():
+    catalog, mirror, graph = _deep_cut_fixture()
+    builder = SeedPoolBuilder(
+        catalog, FakeLLM([]), graph_store=graph, mb_mirror=mirror,
+    )
+
+    pool = await builder.build(
+        "Seed Artist", target_count=3, popularity_variety=1.0,
+    )
+
+    titles = {t.title for t in pool.tracks}
+    # p=1.0 on the 5 seed slots: all replaced by deep cuts.
+    assert {"Deep 0", "Deep 1", "Deep 2", "Deep 3", "Deep 4"} <= titles
+    assert not any(t.startswith("Hit") for t in titles)
+    # Resolutions cached, including artist attribution.
+    assert graph.resolutions["rec-0"].apple_music_id == "D0"
+
+
+@pytest.mark.asyncio
+async def test_deep_cuts_disabled_at_zero_popularity():
+    catalog, mirror, graph = _deep_cut_fixture()
+    builder = SeedPoolBuilder(
+        catalog, FakeLLM([]), graph_store=graph, mb_mirror=mirror,
+    )
+
+    pool = await builder.build("Seed Artist", target_count=3, popularity_variety=0.0)
+
+    assert mirror.calls == []
+    assert all(t.title.startswith("Hit") for t in pool.tracks)
+
+
+@pytest.mark.asyncio
+async def test_deep_cut_cache_hits_skip_search():
+    catalog, mirror, graph = _deep_cut_fixture()
+    for i in range(5):
+        graph.resolutions[f"rec-{i}"] = RecordingResolutionRecord(
+            recording_mbid=f"rec-{i}", title=f"Deep {i}", artist="Seed Artist",
+            apple_music_id=f"D{i}",
+            payload={
+                "apple_music_id": f"D{i}", "title": f"Deep {i}",
+                "artist": "Seed Artist", "album": "Deep LP", "year": "1998",
+                "duration_secs": 200.0, "track_number": 0,
+            },
+        )
+    builder = SeedPoolBuilder(
+        catalog, FakeLLM([]), graph_store=graph, mb_mirror=mirror,
+    )
+
+    pool = await builder.build("Seed Artist", target_count=3, popularity_variety=1.0)
+
+    assert not any(c[0] == "search" for c in catalog.calls)
+    assert {"Deep 0", "Deep 1", "Deep 2", "Deep 3", "Deep 4"} <= {t.title for t in pool.tracks}
+
+
+@pytest.mark.asyncio
+async def test_deep_cut_misses_are_negative_cached():
+    catalog, mirror, graph = _deep_cut_fixture()
+    catalog.songs_by_query = {}  # every Apple search misses
+    builder = SeedPoolBuilder(
+        catalog, FakeLLM([]), graph_store=graph, mb_mirror=mirror,
+    )
+
+    pool = await builder.build("Seed Artist", target_count=3, popularity_variety=1.0)
+
+    assert graph.resolutions["rec-0"].apple_music_id is None
+    assert all(t.title.startswith("Hit") for t in pool.tracks)

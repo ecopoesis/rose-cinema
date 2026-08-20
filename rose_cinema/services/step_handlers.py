@@ -55,6 +55,7 @@ async def handle_pick_tracks(payload: dict) -> dict:
     from rose_cinema.services.musicbrainz import get_musicbrainz_client
     from rose_cinema.services.listenbrainz import get_listenbrainz_client
     from rose_cinema.services.artist_graph import ArtistGraphStore
+    from rose_cinema.services.mb_mirror import get_mb_mirror
 
     llm = get_llm_provider()
     catalog = get_music_catalog()
@@ -63,6 +64,7 @@ async def handle_pick_tracks(payload: dict) -> dict:
         catalog, llm, mb_client,
         lb_client=get_listenbrainz_client(),
         graph_store=ArtistGraphStore(async_session),
+        mb_mirror=get_mb_mirror(),
     ) if catalog else None
 
     songs = await TrackPicker(llm, catalog, seed_builder).pick(

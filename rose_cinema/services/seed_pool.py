@@ -6,14 +6,16 @@ import logging
 import random
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 from rose_cinema.providers import LLMMessage, LLMProvider
+from rose_cinema.repositories import RecordingResolutionRecord
 from rose_cinema.services.catalog import (
     CatalogArtist,
     CatalogTrack,
     MusicCatalog,
+    best_match,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,9 @@ _SEED_ARTIST_TOP_SONGS = 10
 _FETCH_CONCURRENCY = 6
 _LB_SIMILAR_TAKE = 20
 _LB_RESOLVE_BUDGET = 6
+_DEEP_CUT_SIMILAR_LIMIT = 4
+_DEEP_CUT_SEARCH_BUDGET = 40
+_DEEP_CUT_CANDIDATES_PER_ARTIST = 50
 
 
 class SeedPoolBuilder:
@@ -81,12 +86,14 @@ class SeedPoolBuilder:
         mb_client: object | None = None,
         lb_client: object | None = None,
         graph_store: object | None = None,
+        mb_mirror: object | None = None,
     ):
         self._catalog = catalog
         self._llm = llm
         self._mb = mb_client
         self._lb = lb_client
         self._graph = graph_store
+        self._mirror = mb_mirror
 
     async def build(
         self,
@@ -123,20 +130,24 @@ class SeedPoolBuilder:
         if len(all_artists) > 1:
             pool = await self._build_multi_artist_pool(
                 seed_label, all_artists, target_count, discovery_rate, genre_variety,
+                popularity_variety,
             )
         elif len(all_artists) == 1:
             seed_artist = await self._resolve_artist(all_artists[0])
             if seed_artist:
                 pool = await self._build_artist_pool(
                     seed_label, seed_artist, target_count, discovery_rate, genre_variety,
+                    popularity_variety,
                 )
             else:
                 pool = await self._build_uncached(
                     seed_label, target_count, discovery_rate, genre_variety,
+                    popularity_variety,
                 )
         else:
             pool = await self._build_uncached(
                 seed_label, target_count, discovery_rate, genre_variety,
+                popularity_variety,
             )
 
         if all_tracks:
@@ -163,6 +174,7 @@ class SeedPoolBuilder:
     async def _build_uncached(
         self, seed_label: str, target_count: int,
         discovery_rate: float = 0.5, genre_variety: float = 0.5,
+        popularity_variety: float = 0.0,
     ) -> SeedPool:
         seed_artist = await self._resolve_artist(seed_label)
 
@@ -172,6 +184,7 @@ class SeedPoolBuilder:
         if seed_artist is not None:
             return await self._build_artist_pool(
                 seed_label, seed_artist, target_count, discovery_rate, genre_variety,
+                popularity_variety,
             )
 
         themed = await self._build_theme_pool(seed_label, target_count)
@@ -209,6 +222,7 @@ class SeedPoolBuilder:
     async def _build_artist_pool(
         self, seed_label: str, seed_artist: CatalogArtist, target_count: int,
         discovery_rate: float = 0.5, genre_variety: float = 0.5,
+        popularity_variety: float = 0.0,
     ) -> SeedPool:
         similar_count = max(1, round(_SIMILAR_ARTIST_FANOUT * discovery_rate))
         seed_views = await self._catalog.get_artist_views(
@@ -262,6 +276,13 @@ class SeedPoolBuilder:
             for t in songs:
                 by_artist[v.artist.apple_music_id].append(t)
 
+        deep_ids = [seed_artist.apple_music_id] + [
+            v.artist.apple_music_id
+            for v in related_views
+            if not isinstance(v, BaseException) and v.artist.apple_music_id
+        ][:_DEEP_CUT_SIMILAR_LIMIT]
+        await self._inject_deep_cuts(by_artist, artists_seen, deep_ids, popularity_variety)
+
         # Optional: under-target safety hop
         pool_target = max(40, target_count * 6)
         if sum(len(ts) for ts in by_artist.values()) < pool_target // 2:
@@ -274,6 +295,82 @@ class SeedPoolBuilder:
             artists_seen=artists_seen,
             source="artist_seed",
         )
+
+    # ── Deep cuts (MusicBrainz discography → Apple resolution) ────────
+
+    async def _inject_deep_cuts(
+        self,
+        by_artist: dict[str, list[CatalogTrack]],
+        artists_seen: dict[str, CatalogArtist],
+        artist_ids: list[str],
+        popularity_variety: float,
+    ) -> None:
+        """Replace round(cap·p) top-song slots per artist with discography deep cuts.
+
+        Fresh Apple search calls are bounded per run; cache hits are free.
+        No mirror, no MBID, or p == 0 → no-op (prompt-only popularity).
+        """
+        if popularity_variety <= 0 or self._mirror is None or self._graph is None:
+            return
+        budget = max(8, round(_DEEP_CUT_SEARCH_BUDGET * popularity_variety))
+
+        for aid in artist_ids:
+            artist = artists_seen.get(aid)
+            tracks = by_artist.get(aid)
+            if not artist or not tracks:
+                continue
+            n_deep = round(len(tracks) * popularity_variety)
+            if n_deep <= 0:
+                continue
+            mbid = await self._artist_mbid(artist.name)
+            if not mbid:
+                continue
+            disco = await self._mirror.get_discography(mbid)
+            if not disco:
+                continue
+
+            existing = {t.title.lower().strip() for t in tracks}
+            candidates = [r for r in disco if r.title.lower().strip() not in existing]
+            random.shuffle(candidates)
+            candidates.sort(key=lambda r: r.rg_type != "Album")
+            candidates = candidates[:_DEEP_CUT_CANDIDATES_PER_ARTIST]
+
+            cached = await self._graph.get_resolutions([r.mbid for r in candidates])
+            resolved: list[CatalogTrack] = []
+            for r in candidates:
+                if len(resolved) >= n_deep:
+                    break
+                hit = cached.get(r.mbid)
+                if hit is not None:
+                    if hit.apple_music_id and hit.payload:
+                        resolved.append(CatalogTrack(**hit.payload))
+                    continue
+                if budget <= 0:
+                    continue
+                budget -= 1
+                try:
+                    results = await self._catalog.search(
+                        f"{r.title} {artist.name}", limit=5,
+                    )
+                except Exception:
+                    continue
+                best = best_match(r.title, artist.name, results)
+                await self._graph.put_resolution(RecordingResolutionRecord(
+                    recording_mbid=r.mbid,
+                    title=r.title,
+                    artist=artist.name,
+                    apple_music_id=best.apple_music_id if best else None,
+                    payload=asdict(best) if best else None,
+                ))
+                if best:
+                    resolved.append(best)
+
+            if resolved:
+                by_artist[aid] = tracks[: max(0, len(tracks) - len(resolved))] + resolved
+                logger.info(
+                    "deep cuts: swapped in %d/%d for %r (budget left %d)",
+                    len(resolved), n_deep, artist.name, budget,
+                )
 
     async def _second_hop(
         self,
@@ -326,9 +423,13 @@ class SeedPoolBuilder:
             link = await self._graph.get_link(artist_name)
             if link is not None:
                 return link.mbid
-        if self._mb is None or not hasattr(self._mb, "get_artist_mbid"):
+        mbid: str | None = None
+        if self._mirror is not None:
+            mbid = await self._mirror.get_artist_mbid(artist_name)
+        if mbid is None and self._mb is not None and hasattr(self._mb, "get_artist_mbid"):
+            mbid = await self._mb.get_artist_mbid(artist_name)
+        elif mbid is None and self._mirror is None:
             return None
-        mbid = await self._mb.get_artist_mbid(artist_name)
         if self._graph is not None:
             await self._graph.upsert_link(artist_name, mbid=mbid)
         return mbid
@@ -450,6 +551,7 @@ class SeedPoolBuilder:
     async def _build_multi_artist_pool(
         self, seed_label: str, artist_names: list[str], target_count: int,
         discovery_rate: float = 0.5, genre_variety: float = 0.5,
+        popularity_variety: float = 0.0,
     ) -> SeedPool:
         resolved: list[CatalogArtist] = []
         for name in artist_names:
@@ -468,6 +570,7 @@ class SeedPoolBuilder:
         if len(resolved) == 1:
             return await self._build_artist_pool(
                 seed_label, resolved[0], target_count, discovery_rate, genre_variety,
+                popularity_variety,
             )
 
         n_seeds = len(resolved)
@@ -554,6 +657,12 @@ class SeedPoolBuilder:
                     songs = random.sample(songs, self._MULTI_SIMILAR_SONGS)
                 for t in songs:
                     by_artist[v.artist.apple_music_id].append(t)
+
+        await self._inject_deep_cuts(
+            by_artist, artists_seen,
+            [a.apple_music_id for a in resolved[: _DEEP_CUT_SIMILAR_LIMIT + 1]],
+            popularity_variety,
+        )
 
         logger.info(
             "multi-artist pool: %d seeds, %d total artists, %d tracks "

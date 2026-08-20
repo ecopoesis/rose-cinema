@@ -29,6 +29,20 @@ class CatalogArtistViews:
     similar_artists: list[CatalogArtist] = field(default_factory=list)
 
 
+def best_match(title: str, artist: str, results: list[CatalogTrack]) -> CatalogTrack | None:
+    """First result whose title and artist mutually substring-match the proposal."""
+    ptitle = title.lower()
+    partist = artist.lower()
+    for r in results:
+        rtitle = r.title.lower()
+        rartist = r.artist.lower()
+        title_ok = ptitle in rtitle or rtitle in ptitle
+        artist_ok = partist in rartist or rartist in partist
+        if title_ok and artist_ok:
+            return r
+    return None
+
+
 class MusicCatalog(ABC):
     """Abstraction over a music catalog: discovery (search/charts/similar) + verification."""
 

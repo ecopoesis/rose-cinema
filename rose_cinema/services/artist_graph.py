@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from rose_cinema.repositories import ArtistLinkRecord
+from rose_cinema.repositories import ArtistLinkRecord, RecordingResolutionRecord
 
 logger = logging.getLogger(__name__)
 
@@ -66,3 +66,23 @@ class ArtistGraphStore:
                 await SqlLbSimilarRepository(session).put(artist_mbid, payload)
         except Exception:
             logger.warning("lb_similar_cache write failed for %s", artist_mbid, exc_info=True)
+
+    async def get_resolutions(self, recording_mbids: list[str]) -> dict[str, RecordingResolutionRecord]:
+        from rose_cinema.repositories.sql import SqlRecordingResolutionRepository
+        try:
+            async with self._sf() as session:
+                return await SqlRecordingResolutionRepository(session).get_many(recording_mbids)
+        except Exception:
+            logger.warning("recording_resolutions read failed", exc_info=True)
+            return {}
+
+    async def put_resolution(self, record: RecordingResolutionRecord) -> None:
+        from rose_cinema.repositories.sql import SqlRecordingResolutionRepository
+        try:
+            async with self._sf() as session:
+                await SqlRecordingResolutionRepository(session).upsert(record)
+        except Exception:
+            logger.warning(
+                "recording_resolutions upsert failed for %s",
+                record.recording_mbid, exc_info=True,
+            )

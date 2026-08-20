@@ -595,6 +595,7 @@ async def test_playlist(
     from rose_cinema.providers.factory import get_llm_provider
     from rose_cinema.services.artist_graph import ArtistGraphStore
     from rose_cinema.services.listenbrainz import get_listenbrainz_client
+    from rose_cinema.services.mb_mirror import get_mb_mirror
     from rose_cinema.services.musicbrainz import get_musicbrainz_client
     from rose_cinema.services.seed_pool import SeedPoolBuilder
     from rose_cinema.services.track_picker import TrackPicker
@@ -607,6 +608,7 @@ async def test_playlist(
         catalog, llm, mb_client,
         lb_client=get_listenbrainz_client(),
         graph_store=ArtistGraphStore(async_session),
+        mb_mirror=get_mb_mirror(),
     ) if catalog else None
 
     run_repo = SqlPlaylistRunRepository(session)

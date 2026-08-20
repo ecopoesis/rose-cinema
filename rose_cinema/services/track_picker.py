@@ -5,7 +5,7 @@ import logging
 import re
 
 from rose_cinema.providers import LLMMessage, LLMProvider
-from rose_cinema.services.catalog import CatalogTrack, MusicCatalog
+from rose_cinema.services.catalog import CatalogTrack, MusicCatalog, best_match
 from rose_cinema.services.exclusions import is_excluded, normalize_exclusions
 from rose_cinema.services.seed_pool import SeedPool, SeedPoolBuilder
 from rose_cinema.services.station_builder import SongMetadata
@@ -397,13 +397,4 @@ def _format_pool_line(
 
 
 def _best_match(proposal: SongMetadata, results: list[CatalogTrack]) -> CatalogTrack | None:
-    ptitle = proposal.title.lower()
-    partist = proposal.artist.lower()
-    for r in results:
-        rtitle = r.title.lower()
-        rartist = r.artist.lower()
-        title_match = ptitle in rtitle or rtitle in ptitle
-        artist_match = partist in rartist or rartist in partist
-        if title_match and artist_match:
-            return r
-    return None
+    return best_match(proposal.title, proposal.artist, results)

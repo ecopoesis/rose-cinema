@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # MusicBrainz tag enrichment — set to "RoseCinema/1.0 (you@email)" to enable
     musicbrainz_user_agent: str = Field(default="")
 
+    # Local MusicBrainz DB-only mirror (deep cuts) — empty disables.
+    # e.g. postgresql+asyncpg://rose_ro:pw@host.docker.internal:5433/musicbrainz_db
+    musicbrainz_db_url: str = Field(default="")
+
     # ListenBrainz Labs similar-artists (free, no key; cached in Postgres)
     listenbrainz_enabled: bool = Field(default=True)
     listenbrainz_base_url: str = Field(default="https://labs.api.listenbrainz.org")

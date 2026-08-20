@@ -66,6 +66,7 @@ Full backlog: <https://github.com/ecopoesis/rose-cinema/issues>
 - **TTS**: Piper, runs in-process via the `piper` CLI. Voices live under `data/piper_models/`. (ElevenLabs / OpenAI TTS providers exist in code but the install path bakes Piper into the Docker image.)
 - **Playback**: Music Assistant runs as a separate container/stack on the same machine (or LAN). `radiobot` talks to it over the WebSocket API; MA owns all the actual audio routing.
 - **Similar artists**: Apple Music's static `similar-artists` view blended with [ListenBrainz Labs](https://labs.api.listenbrainz.org/) similar-artists (free, no key, keyed by MusicBrainz MBID). Results are lazily cached in Postgres (`lb_similar_cache`, 30 days; artist-name → MBID/Apple-ID links in `artist_links`). On by default; set `LISTENBRAINZ_ENABLED=false` to disable. Requires `MUSICBRAINZ_USER_AGENT` to be set for MBID resolution.
+- **Deep cuts**: a local [MusicBrainz DB-only mirror](deploy/musicbrainz/README.md) (~100 GB Postgres, hourly replication) supplies full discographies; candidates are resolved to playable Apple Music tracks via catalog search and cached permanently in `recording_resolutions`. Enabled by setting `MUSICBRAINZ_DB_URL`; without it, `popularity_variety` only steers the LLM prompt.
 - **Database**: PostgreSQL 17 via SQLAlchemy async (asyncpg) + Alembic. Repository-pattern abstractions in `rose_cinema/repositories/__init__.py`; SQL implementations in `rose_cinema/repositories/sql.py`. PG LISTEN/NOTIFY drives the generation queue.
 - **DJ personalities**: Markdown blob in the `djs.agent_md` column. Two samples in `agents/`: Velvet (late-night) and Spark (morning drive).
 
@@ -80,7 +81,7 @@ Full backlog: <https://github.com/ecopoesis/rose-cinema/issues>
 | `music_source` | string | seed text the LLM uses to assemble the tracklist |
 | `genre_variety` | 0..1 | 0 = stay in the seed's genre, 1 = wander into adjacent genres freely |
 | `year_variety` | 0..1 | 0 = seed's era only (hard ±5-year window), 1 = any decade |
-| `popularity_variety` | 0..1 | 0 = hits and top songs, 1 = deep cuts & B-sides |
+| `popularity_variety` | 0..1 | 0 = hits and top songs, 1 = deep cuts & B-sides (full effect needs the [MusicBrainz mirror](deploy/musicbrainz/README.md); prompt-only otherwise) |
 | `excluded_artists` | string list | artists never played on this station — not even as a featured guest or collaborator; cumulative with the global list (`PUT /api/settings/exclusions`, editable via "Excluded Artists" in the web UI) |
 
 ## Quick start — production (Linux server + Portainer)

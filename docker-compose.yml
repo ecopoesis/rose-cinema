@@ -52,6 +52,7 @@ services:
       APPLE_MUSIC_USER_TOKEN: ${APPLE_MUSIC_USER_TOKEN:-}
       MUSICBRAINZ_USER_AGENT: ${MUSICBRAINZ_USER_AGENT:-}
       LISTENBRAINZ_ENABLED: ${LISTENBRAINZ_ENABLED:-true}
+      MUSICBRAINZ_DB_URL: ${MUSICBRAINZ_DB_URL:-}
       WIDEVINE_CDM_DIR: /ma-data/widevine_cdm
     extra_hosts:
       - "host.docker.internal:host-gateway"

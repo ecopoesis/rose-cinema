@@ -143,6 +143,7 @@ class FakeGraphStore:
         self._record_cls = ArtistLinkRecord
         self.links: dict = {}
         self.similar: dict[str, list[dict]] = {}
+        self.resolutions: dict = {}
 
     async def get_link(self, artist_name: str):
         return self.links.get(artist_name.lower().strip())
@@ -163,3 +164,30 @@ class FakeGraphStore:
 
     async def put_similar(self, artist_mbid: str, payload: list[dict]):
         self.similar[artist_mbid] = list(payload)
+
+    async def get_resolutions(self, recording_mbids: list[str]):
+        return {m: self.resolutions[m] for m in recording_mbids if m in self.resolutions}
+
+    async def put_resolution(self, record):
+        self.resolutions[record.recording_mbid] = record
+
+
+class FakeMirror:
+    """Canned MusicBrainz-mirror discographies keyed by artist MBID."""
+
+    def __init__(
+        self,
+        mbid_by_name: dict[str, str] | None = None,
+        discography_by_mbid: dict[str, list] | None = None,
+    ):
+        self._mbids = mbid_by_name or {}
+        self._disco = discography_by_mbid or {}
+        self.calls: list[tuple] = []
+
+    async def get_artist_mbid(self, name: str):
+        self.calls.append(("get_artist_mbid", name))
+        return self._mbids.get(name.lower().strip())
+
+    async def get_discography(self, artist_mbid: str, limit: int = 200):
+        self.calls.append(("get_discography", artist_mbid))
+        return list(self._disco.get(artist_mbid, []))[:limit]
