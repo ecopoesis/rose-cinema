@@ -237,6 +237,9 @@ async def create_station(
         excluded_artists=body.excluded_artists,
         cron_schedule=body.cron_schedule,
         discovery_rate=body.discovery_rate,
+        genre_variety=body.genre_variety,
+        year_variety=body.year_variety,
+        popularity_variety=body.popularity_variety,
         history_runs=body.history_runs,
         weather_postal_code=body.weather_postal_code,
         weather_rate=body.weather_rate,
@@ -259,7 +262,8 @@ async def update_station(
         "dj_babble_rate", "dj_max_length_secs", "max_playlists", "dj_id", "music_source",
         "source_artists", "source_albums", "source_tracks",
         "excluded_artists",
-        "cron_schedule", "discovery_rate", "history_runs",
+        "cron_schedule", "discovery_rate", "genre_variety", "year_variety",
+        "popularity_variety", "history_runs",
         "weather_postal_code", "weather_rate",
     ):
         val = getattr(body, field_name)
@@ -407,6 +411,9 @@ async def generate_playlist(
                 station.excluded_artists,
             ),
             "discovery_rate": station.discovery_rate,
+            "genre_variety": station.genre_variety,
+            "year_variety": station.year_variety,
+            "popularity_variety": station.popularity_variety,
         },
     )
     await session.commit()
@@ -610,6 +617,9 @@ async def test_playlist(
         source_albums=station.source_albums,
         source_tracks=station.source_tracks,
         discovery_rate=station.discovery_rate,
+        genre_variety=station.genre_variety,
+        year_variety=station.year_variety,
+        popularity_variety=station.popularity_variety,
         excluded_artists=merge_exclusions(
             await get_global_excluded_artists(session),
             station.excluded_artists,
@@ -776,6 +786,8 @@ async def export_all(session: AsyncSession = Depends(get_session)):
                 source_tracks=s.source_tracks, excluded_artists=s.excluded_artists,
                 cron_schedule=s.cron_schedule,
                 discovery_rate=s.discovery_rate, history_runs=s.history_runs,
+                genre_variety=s.genre_variety, year_variety=s.year_variety,
+                popularity_variety=s.popularity_variety,
                 weather_postal_code=s.weather_postal_code, weather_rate=s.weather_rate,
                 dj_name=dj_map.get(s.dj_id) if s.dj_id else None,
                 album_art=s.album_art,
@@ -820,6 +832,8 @@ async def import_all(body: ExportData, session: AsyncSession = Depends(get_sessi
             source_tracks=s.source_tracks, excluded_artists=s.excluded_artists,
             cron_schedule=s.cron_schedule,
             discovery_rate=s.discovery_rate, history_runs=s.history_runs,
+            genre_variety=s.genre_variety, year_variety=s.year_variety,
+            popularity_variety=s.popularity_variety,
             weather_postal_code=s.weather_postal_code, weather_rate=s.weather_rate,
         ))
         stations_created += 1

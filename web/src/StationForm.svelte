@@ -13,6 +13,9 @@
   let dj_max_length_secs = $state(init.dj_max_length_secs ?? 30);
   let max_playlists = $state(init.max_playlists ?? 0);
   let discovery_rate = $state(init.discovery_rate ?? 0.5);
+  let genre_variety = $state(init.genre_variety ?? 0.5);
+  let year_variety = $state(init.year_variety ?? 0.5);
+  let popularity_variety = $state(init.popularity_variety ?? 0);
   let history_runs = $state(init.history_runs ?? 3);
   let source_artists = $state((init.source_artists ?? []).join('\n'));
   let source_albums = $state((init.source_albums ?? []).join('\n'));
@@ -65,6 +68,9 @@
         dj_max_length_secs: Number(dj_max_length_secs),
         max_playlists: Number(max_playlists),
         discovery_rate: Number(discovery_rate),
+        genre_variety: Number(genre_variety),
+        year_variety: Number(year_variety),
+        popularity_variety: Number(popularity_variety),
         history_runs: Number(history_runs),
         source_artists: artists.length ? artists : null,
         source_albums: albums.length ? albums : null,
@@ -169,6 +175,27 @@
       <div class="range-row">
         <input id="s-discovery" type="range" bind:value={discovery_rate} min="0" max="1" step="0.05">
         <span class="range-val">{Number(discovery_rate).toFixed(2)}</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="s-genre-var">Genre Variety</label>
+      <div class="range-row">
+        <input id="s-genre-var" type="range" bind:value={genre_variety} min="0" max="1" step="0.05">
+        <span class="range-val">{Number(genre_variety).toFixed(2)}</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="s-year-var">Era Variety</label>
+      <div class="range-row">
+        <input id="s-year-var" type="range" bind:value={year_variety} min="0" max="1" step="0.05">
+        <span class="range-val">{Number(year_variety).toFixed(2)}</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="s-pop-var">Deep Cuts</label>
+      <div class="range-row">
+        <input id="s-pop-var" type="range" bind:value={popularity_variety} min="0" max="1" step="0.05">
+        <span class="range-val">{Number(popularity_variety).toFixed(2)}</span>
       </div>
     </div>
     <div class="field">

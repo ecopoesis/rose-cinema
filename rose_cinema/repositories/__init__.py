@@ -36,6 +36,9 @@ class StationRecord:
     album_art: str = ""
     cron_schedule: str | None = None
     discovery_rate: float = 0.5
+    genre_variety: float = 0.5
+    year_variety: float = 0.5
+    popularity_variety: float = 0.0
     history_runs: int = 3
     weather_postal_code: str | None = None
     weather_rate: float = 0.0

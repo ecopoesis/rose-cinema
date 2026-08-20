@@ -68,6 +68,9 @@ class TrackPicker:
         source_albums: list[str] | None = None,
         source_tracks: list[str] | None = None,
         discovery_rate: float = 0.5,
+        genre_variety: float = 0.5,
+        year_variety: float = 0.5,
+        popularity_variety: float = 0.0,
         excluded_artists: list[str] | None = None,
     ) -> list[SongMetadata]:
         target_count = max(3, round((target_minutes * 60) / avg_song_secs))
@@ -80,6 +83,9 @@ class TrackPicker:
                 source_albums=source_albums,
                 source_tracks=source_tracks,
                 discovery_rate=discovery_rate,
+                genre_variety=genre_variety,
+                year_variety=year_variety,
+                popularity_variety=popularity_variety,
             )
             if excluded and pool.tracks:
                 before = len(pool.tracks)
@@ -130,6 +136,7 @@ class TrackPicker:
             if pool.constraints else ""
         )
 
+        v = pool.variety
         system = (
             f"You curate a {target_count}-track radio set from a fixed numbered pool.\n"
             f"Output ONLY this JSON: {{\"picks\":[<int>,<int>,...]}} with exactly {target_count} indices.\n"
@@ -137,10 +144,11 @@ class TrackPicker:
             f"- Indices must be in [0, {len(pool.tracks) - 1}].\n"
             "- Same artist no more than twice across the picks.\n"
             f"-{seed_hint}\n"
-            "- Tags in {{}} show genre/style. Prefer tracks whose tags align with the seed's musical identity.\n"
+            f"{_genre_rule(v.genre)}"
             f"{style_rule}"
             f"{constraint_rule}"
-            "- Span eras: when the pool offers a year range, prefer mixing.\n"
+            f"{_year_rule(v.year)}"
+            f"{_popularity_rule(v.popularity)}"
             "- Order for arc: opener with energy, mid section deeper cuts, closer that resolves.\n"
             "No commentary, no extra keys."
         )
@@ -321,6 +329,36 @@ class TrackPicker:
         if not verified:
             raise ValueError("All proposed tracks failed catalog verification")
         return verified
+
+
+def _genre_rule(g: float) -> str:
+    if g < 0.34:
+        return (
+            "- Tags in {} show genre/style. Stay tight to the seed's core genre; "
+            "picks must align closely with the seed's tags — no stylistic detours.\n"
+        )
+    if g >= 0.67:
+        return (
+            "- Tags in {} show genre/style. Range across genres freely; "
+            "adventurous adjacent picks are welcome.\n"
+        )
+    return "- Tags in {} show genre/style. Prefer tracks whose tags align with the seed's musical identity.\n"
+
+
+def _year_rule(y: float) -> str:
+    if y < 0.34:
+        return "- Keep the set within the seed's era; avoid decade jumps.\n"
+    if y >= 0.67:
+        return "- Deliberately span decades — mix old and new side by side.\n"
+    return "- Span eras: when the pool offers a year range, prefer mixing.\n"
+
+
+def _popularity_rule(p: float) -> str:
+    if p < 0.34:
+        return "- Favor signature hits and well-known tracks.\n"
+    if p >= 0.67:
+        return "- Favor album cuts, B-sides, and deep catalog over the obvious singles.\n"
+    return ""
 
 
 def _track_to_song(t: CatalogTrack, *, fallback_duration: float = 0.0) -> SongMetadata:

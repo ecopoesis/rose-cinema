@@ -50,6 +50,9 @@ class StationCreate(BaseModel):
     excluded_artists: list[str] | None = None
     cron_schedule: str | None = None
     discovery_rate: float = Field(default=0.5, ge=0.0, le=1.0)
+    genre_variety: float = Field(default=0.5, ge=0.0, le=1.0)
+    year_variety: float = Field(default=0.5, ge=0.0, le=1.0)
+    popularity_variety: float = Field(default=0.0, ge=0.0, le=1.0)
     history_runs: int = Field(default=3, ge=0, le=50)
     weather_postal_code: str | None = None
     weather_rate: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -72,6 +75,9 @@ class StationUpdate(BaseModel):
     excluded_artists: list[str] | None = None
     cron_schedule: str | None = None
     discovery_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    genre_variety: float | None = Field(default=None, ge=0.0, le=1.0)
+    year_variety: float | None = Field(default=None, ge=0.0, le=1.0)
+    popularity_variety: float | None = Field(default=None, ge=0.0, le=1.0)
     history_runs: int | None = Field(default=None, ge=0, le=50)
     weather_postal_code: str | None = None
     weather_rate: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -94,6 +100,9 @@ class StationResponse(BaseModel):
     excluded_artists: list[str] | None = None
     cron_schedule: str | None = None
     discovery_rate: float
+    genre_variety: float
+    year_variety: float
+    popularity_variety: float
     history_runs: int
     weather_postal_code: str | None = None
     weather_rate: float
@@ -236,6 +245,9 @@ class StationExport(BaseModel):
     excluded_artists: list[str] | None = None
     cron_schedule: str | None = None
     discovery_rate: float = Field(default=0.5, ge=0.0, le=1.0)
+    genre_variety: float = Field(default=0.5, ge=0.0, le=1.0)
+    year_variety: float = Field(default=0.5, ge=0.0, le=1.0)
+    popularity_variety: float = Field(default=0.0, ge=0.0, le=1.0)
     history_runs: int = Field(default=3, ge=0, le=50)
     weather_postal_code: str | None = None
     weather_rate: float = Field(default=0.0, ge=0.0, le=1.0)

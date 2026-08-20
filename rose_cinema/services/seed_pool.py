@@ -31,6 +31,13 @@ class ParsedSource:
     constraints: str = ""
 
 
+@dataclass(frozen=True)
+class VarietyParams:
+    genre: float = 0.5
+    year: float = 0.5
+    popularity: float = 0.0
+
+
 @dataclass
 class SeedPool:
     seed_label: str
@@ -41,6 +48,7 @@ class SeedPool:
     artist_tags: dict[str, tuple[str, ...]] = field(default_factory=dict)
     style_hint: str = ""
     constraints: str = ""
+    variety: VarietyParams = field(default_factory=VarietyParams)
 
 
 _DEFAULT_PER_ARTIST_POOL_CAP = 4
@@ -83,6 +91,9 @@ class SeedPoolBuilder:
         source_albums: list[str] | None = None,
         source_tracks: list[str] | None = None,
         discovery_rate: float = 0.5,
+        genre_variety: float = 0.5,
+        year_variety: float = 0.5,
+        popularity_variety: float = 0.0,
     ) -> SeedPool:
         seed_label = music_source.strip()
 
@@ -105,18 +116,22 @@ class SeedPoolBuilder:
 
         if len(all_artists) > 1:
             pool = await self._build_multi_artist_pool(
-                seed_label, all_artists, target_count, discovery_rate,
+                seed_label, all_artists, target_count, discovery_rate, genre_variety,
             )
         elif len(all_artists) == 1:
             seed_artist = await self._resolve_artist(all_artists[0])
             if seed_artist:
                 pool = await self._build_artist_pool(
-                    seed_label, seed_artist, target_count, discovery_rate,
+                    seed_label, seed_artist, target_count, discovery_rate, genre_variety,
                 )
             else:
-                pool = await self._build_uncached(seed_label, target_count)
+                pool = await self._build_uncached(
+                    seed_label, target_count, discovery_rate, genre_variety,
+                )
         else:
-            pool = await self._build_uncached(seed_label, target_count)
+            pool = await self._build_uncached(
+                seed_label, target_count, discovery_rate, genre_variety,
+            )
 
         if all_tracks:
             await self._add_explicit_tracks(pool, all_tracks)
@@ -125,6 +140,11 @@ class SeedPoolBuilder:
 
         pool.style_hint = style_hint
         pool.constraints = constraints
+        pool.variety = VarietyParams(
+            genre=genre_variety, year=year_variety, popularity=popularity_variety,
+        )
+
+        _apply_year_window(pool, year_variety, target_count)
 
         await self._enrich_with_tags(pool)
         logger.info(
@@ -134,14 +154,19 @@ class SeedPoolBuilder:
         )
         return pool
 
-    async def _build_uncached(self, seed_label: str, target_count: int) -> SeedPool:
+    async def _build_uncached(
+        self, seed_label: str, target_count: int,
+        discovery_rate: float = 0.5, genre_variety: float = 0.5,
+    ) -> SeedPool:
         seed_artist = await self._resolve_artist(seed_label)
 
         if seed_artist is None:
             seed_artist = await self._resolve_via_track(seed_label)
 
         if seed_artist is not None:
-            return await self._build_artist_pool(seed_label, seed_artist, target_count)
+            return await self._build_artist_pool(
+                seed_label, seed_artist, target_count, discovery_rate, genre_variety,
+            )
 
         themed = await self._build_theme_pool(seed_label, target_count)
         if themed.tracks:
@@ -177,7 +202,7 @@ class SeedPoolBuilder:
 
     async def _build_artist_pool(
         self, seed_label: str, seed_artist: CatalogArtist, target_count: int,
-        discovery_rate: float = 0.5,
+        discovery_rate: float = 0.5, genre_variety: float = 0.5,
     ) -> SeedPool:
         similar_count = max(1, round(_SIMILAR_ARTIST_FANOUT * discovery_rate))
         seed_views = await self._catalog.get_artist_views(
@@ -196,7 +221,9 @@ class SeedPoolBuilder:
                     similar_artists=0,
                 )
 
-        similar = list(seed_views.similar_artists)
+        similar = _genre_gate_similar(
+            list(seed_views.similar_artists), seed_views.artist, genre_variety,
+        )
         if len(similar) > _SIMILAR_ARTIST_PICK:
             similar = random.sample(similar, _SIMILAR_ARTIST_PICK)
 
@@ -334,7 +361,7 @@ class SeedPoolBuilder:
 
     async def _build_multi_artist_pool(
         self, seed_label: str, artist_names: list[str], target_count: int,
-        discovery_rate: float = 0.5,
+        discovery_rate: float = 0.5, genre_variety: float = 0.5,
     ) -> SeedPool:
         resolved: list[CatalogArtist] = []
         for name in artist_names:
@@ -351,7 +378,9 @@ class SeedPoolBuilder:
             )
 
         if len(resolved) == 1:
-            return await self._build_artist_pool(seed_label, resolved[0], target_count)
+            return await self._build_artist_pool(
+                seed_label, resolved[0], target_count, discovery_rate, genre_variety,
+            )
 
         n_seeds = len(resolved)
         top_per_seed = 6 if n_seeds >= 10 else 8
@@ -383,9 +412,13 @@ class SeedPoolBuilder:
             seed_count += 1
             for g in (v.artist.genres or ()):
                 genre_counts[g.lower()] += 1
-        # Genres appearing in >= 15% of seeds are "dominant".
-        threshold = max(1, seed_count * 0.15)
-        dominant_genres = {g for g, c in genre_counts.items() if c >= threshold}
+        # Dominance threshold scales with genre_variety: 0 = strict (30% of
+        # seeds), 0.5 = the historical 15%, >= 0.95 disables the filter.
+        if genre_variety >= 0.95:
+            dominant_genres: set[str] = set()
+        else:
+            threshold = max(1, seed_count * 0.3 * (1 - genre_variety))
+            dominant_genres = {g for g, c in genre_counts.items() if c >= threshold}
 
         similar_to_fetch: list[CatalogArtist] = []
         for v in seed_views:
@@ -633,6 +666,84 @@ class SeedPoolBuilder:
             tracks=ordered,
             artists=artists,
             source=source,
+        )
+
+
+def _genre_gate_similar(
+    similar: list[CatalogArtist], seed: CatalogArtist, genre_variety: float,
+) -> list[CatalogArtist]:
+    """Probabilistically drop similar artists with zero genre overlap with the seed.
+
+    Keep probability equals genre_variety; artists without genre data always pass.
+    """
+    if genre_variety >= 0.95:
+        return similar
+    seed_genres = {g.lower() for g in (seed.genres or ())}
+    if not seed_genres:
+        return similar
+    kept: list[CatalogArtist] = []
+    for a in similar:
+        a_genres = {g.lower() for g in (a.genres or ())}
+        if a_genres and not (a_genres & seed_genres) and random.random() > genre_variety:
+            logger.debug("genre gate dropped %s (no overlap with seed)", a.name)
+            continue
+        kept.append(a)
+    return kept
+
+
+_YEAR_FILTER_MAX = 0.4
+
+
+def _apply_year_window(pool: SeedPool, year_variety: float, target_count: int) -> None:
+    """Below _YEAR_FILTER_MAX, trim tracks far from the seed era in place.
+
+    Window is ±(5 + 62·y) years around the median year of the seed artist's
+    tracks (all tracks when there is no seed artist). Never trims the pool
+    below max(3×target, 24); the closest out-of-window tracks survive first.
+    Tracks without a parseable year always pass.
+    """
+    if year_variety >= _YEAR_FILTER_MAX or not pool.tracks:
+        return
+
+    def year_of(t: CatalogTrack) -> int | None:
+        try:
+            return int(str(t.year)[:4])
+        except (TypeError, ValueError):
+            return None
+
+    seed_name = pool.seed_artist.name.lower().strip() if pool.seed_artist else None
+    anchor_years = [
+        y for t in pool.tracks
+        if (y := year_of(t)) is not None
+        and (seed_name is None or t.artist.lower().strip() == seed_name)
+    ]
+    if len(anchor_years) < 3:
+        anchor_years = [y for t in pool.tracks if (y := year_of(t)) is not None]
+    if not anchor_years:
+        return
+
+    anchor_years.sort()
+    median = anchor_years[len(anchor_years) // 2]
+    half_width = 5 + round(62 * year_variety)
+    floor = max(target_count * 3, 24)
+
+    def distance(t: CatalogTrack) -> int:
+        y = year_of(t)
+        return 0 if y is None else max(0, abs(y - median) - half_width)
+
+    out_of_window = sorted(
+        (t for t in pool.tracks if distance(t) > 0), key=distance,
+    )
+    n_keepable = max(0, floor - (len(pool.tracks) - len(out_of_window)))
+    survivors = {id(t) for t in out_of_window[:n_keepable]}
+    before = len(pool.tracks)
+    pool.tracks = [
+        t for t in pool.tracks if distance(t) == 0 or id(t) in survivors
+    ]
+    if len(pool.tracks) < before:
+        logger.info(
+            "year window ±%d around %d dropped %d/%d tracks (year_variety=%.2f)",
+            half_width, median, before - len(pool.tracks), before, year_variety,
         )
 
 

@@ -47,6 +47,9 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 | `weather_postal_code` | string? | US zip code for local weather injection (e.g. `02101`) |
 | `weather_rate` | 0..1 | probability that a run includes weather in DJ patter |
 | `music_source` | string | seed text the LLM uses to assemble the tracklist |
+| `genre_variety` | 0..1 | 0 = stay in the seed's genre (strict similar-artist gate), 0.5 = historical behavior, 1 = wander freely |
+| `year_variety` | 0..1 | < 0.4 applies a hard ±(5 + 62·y)-year window around the seed's median era; higher values are prompt-only ("span decades") |
+| `popularity_variety` | 0..1 | 0 = top songs/hits (default, current behavior), 1 = deep cuts & B-sides; currently prompt-only |
 | `excluded_artists` | string list | artists never played, even in collabs/features; cumulative with the global list in `app_settings` (`GET`/`PUT /api/settings/exclusions`) |
 
 ## What's built
@@ -60,7 +63,7 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 - `GET`/`PUT /api/settings/exclusions` — global excluded-artists list (app_settings table); merged with per-station `excluded_artists` at generation time
 - Queue worker with PG LISTEN/NOTIFY — 10 step types, retry up to 3x, crash recovery on startup
 - Web UI mounted at `/` — list stations, "Generate" button (polls for progress)
-- Alembic migrations 001–015
+- Alembic migrations 001–016
 - Docker stack: PostgreSQL 17 + radiobot, Portainer-managed
 
 ## Notable backlog (GitHub issues)

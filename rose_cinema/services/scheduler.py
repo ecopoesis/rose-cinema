@@ -138,6 +138,9 @@ class CronScheduler:
                         station.excluded_artists,
                     ),
                     "discovery_rate": station.discovery_rate,
+                    "genre_variety": station.genre_variety,
+                    "year_variety": station.year_variety,
+                    "popularity_variety": station.popularity_variety,
                 },
             )
             await session.commit()

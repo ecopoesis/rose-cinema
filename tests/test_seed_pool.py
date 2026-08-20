@@ -291,3 +291,134 @@ async def test_enrich_skipped_when_no_mb_client():
     tags = pool.artist_tags.get("palace", ())
     assert "Alternative" in tags
     assert "Rock" in tags
+
+
+# ── Variety sliders ────────────────────────────────────────────────────
+
+
+def _views(artist, tracks, similar=()):
+    return CatalogArtistViews(artist=artist, top_songs=tracks, similar_artists=list(similar))
+
+
+@pytest.mark.asyncio
+async def test_discovery_rate_forwarded_on_uncached_path():
+    mcr = mk_artist("1", "My Chemical Romance", "Alternative")
+    catalog = FakeCatalog(
+        artists_by_query={"my chemical romance": [mcr]},
+        artist_views={"1": _views(mcr, [mk_track("100", "Helena", mcr.name)])},
+    )
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+
+    await builder.build("My Chemical Romance", target_count=10, discovery_rate=1.0)
+    assert ("get_artist_views", "1", 10, 12) in catalog.calls
+
+    catalog.calls.clear()
+    await builder.build("My Chemical Romance", target_count=10, discovery_rate=0.25)
+    assert ("get_artist_views", "1", 10, 3) in catalog.calls
+
+
+@pytest.mark.asyncio
+async def test_genre_gate_drops_nonoverlapping_similar_at_zero_variety():
+    seed = mk_artist("1", "Seed Artist", "Alternative")
+    kin = mk_artist("2", "Kin Artist", "Alternative")
+    stranger = mk_artist("3", "Stranger", "Country")
+    catalog = FakeCatalog(
+        artists_by_query={"seed artist": [seed]},
+        artist_views={
+            "1": _views(seed, [mk_track("100", "S", seed.name)], [kin, stranger]),
+            "2": _views(kin, [mk_track("200", "K", kin.name)]),
+            "3": _views(stranger, [mk_track("300", "C", stranger.name)]),
+        },
+    )
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+
+    pool = await builder.build("Seed Artist", target_count=10, genre_variety=0.0)
+    names = {a.name for a in pool.artists}
+    assert "Kin Artist" in names
+    assert "Stranger" not in names
+
+    pool = await builder.build("Seed Artist", target_count=10, genre_variety=1.0)
+    assert "Stranger" in {a.name for a in pool.artists}
+
+
+@pytest.mark.asyncio
+async def test_year_window_trims_far_tracks_when_pool_is_rich():
+    seed = mk_artist("1", "Seed Artist")
+    similars = [mk_artist(str(10 + i), f"Similar {i}") for i in range(6)]
+    old_timer = mk_artist("99", "Old Timer")
+    views = {
+        "1": _views(
+            seed,
+            [mk_track(f"1{i}", f"S{i}", seed.name, "2000") for i in range(10)],
+            similars + [old_timer],
+        ),
+        "99": _views(old_timer, [mk_track(f"99{i}", f"O{i}", old_timer.name, "1970") for i in range(4)]),
+    }
+    for i, a in enumerate(similars):
+        views[a.apple_music_id] = _views(
+            a, [mk_track(f"{a.apple_music_id}{j}", f"T{i}{j}", a.name, "2001") for j in range(12)],
+        )
+    catalog = FakeCatalog(artists_by_query={"seed artist": [seed]}, artist_views=views)
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+
+    pool = await builder.build(
+        "Seed Artist", target_count=3, discovery_rate=1.0, year_variety=0.0,
+    )
+    assert len(pool.tracks) >= 24
+    assert all(t.year != "1970" for t in pool.tracks)
+
+
+@pytest.mark.asyncio
+async def test_year_window_respects_pool_floor():
+    seed = mk_artist("1", "Seed Artist")
+    old_timer = mk_artist("99", "Old Timer")
+    catalog = FakeCatalog(
+        artists_by_query={"seed artist": [seed]},
+        artist_views={
+            "1": _views(
+                seed,
+                [mk_track(f"1{i}", f"S{i}", seed.name, "2000") for i in range(10)],
+                [old_timer],
+            ),
+            "99": _views(
+                old_timer,
+                [mk_track(f"99{i}", f"O{i}", old_timer.name, "1970") for i in range(4)],
+            ),
+        },
+    )
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+
+    pool = await builder.build(
+        "Seed Artist", target_count=3, discovery_rate=1.0, year_variety=0.0,
+    )
+    # Pool is below the 24-track floor, so nothing may be dropped.
+    assert any(t.year == "1970" for t in pool.tracks)
+
+
+@pytest.mark.asyncio
+async def test_multi_artist_genre_threshold_scales_with_variety():
+    rock_a = mk_artist("1", "Rock A", "Rock")
+    rock_b = mk_artist("2", "Rock B", "Rock")
+    jazzer = mk_artist("9", "Jazzer", "Jazz")
+    views = {
+        "1": _views(rock_a, [mk_track("10", "RA", rock_a.name)], [jazzer]),
+        "2": _views(rock_b, [mk_track("20", "RB", rock_b.name)]),
+        "9": _views(jazzer, [mk_track("90", "J", jazzer.name)]),
+    }
+    catalog = FakeCatalog(
+        artists_by_query={"rock a": [rock_a], "rock b": [rock_b]},
+        artist_views=views,
+    )
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+
+    pool = await builder.build(
+        "two rock bands", target_count=10,
+        source_artists=["Rock A", "Rock B"], genre_variety=0.0,
+    )
+    assert "Jazzer" not in {a.name for a in pool.artists}
+
+    pool = await builder.build(
+        "two rock bands", target_count=10,
+        source_artists=["Rock A", "Rock B"], genre_variety=1.0,
+    )
+    assert "Jazzer" in {a.name for a in pool.artists}

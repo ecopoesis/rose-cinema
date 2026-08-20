@@ -204,3 +204,36 @@ async def test_llm_discovery_filters_excluded_artists():
     system_prompt = llm.calls[0][0].content
     assert "BANNED ARTISTS" in system_prompt
     assert "drake" in system_prompt
+
+
+# ── Variety prompt bands ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_variety_extremes_change_curation_prompt():
+    from rose_cinema.services.seed_pool import VarietyParams
+
+    pool = _pool(mk_track("T0", "T0", "A"), mk_track("T1", "T1", "B"))
+    pool.variety = VarietyParams(genre=0.0, year=1.0, popularity=1.0)
+    llm = FakeLLM(['{"picks": [0, 1]}'])
+    picker = TrackPicker(llm, catalog=None, seed_builder=FakeSeedBuilder(pool))
+
+    await picker.pick(music_source="seed", target_minutes=7, avg_song_secs=200)
+
+    system = llm.calls[0][0].content
+    assert "Stay tight to the seed's core genre" in system
+    assert "span decades" in system
+    assert "album cuts, B-sides" in system
+
+
+@pytest.mark.asyncio
+async def test_variety_defaults_keep_current_prompt_lines():
+    pool = _pool(mk_track("T0", "T0", "A"), mk_track("T1", "T1", "B"))
+    llm = FakeLLM(['{"picks": [0, 1]}'])
+    picker = TrackPicker(llm, catalog=None, seed_builder=FakeSeedBuilder(pool))
+
+    await picker.pick(music_source="seed", target_minutes=7, avg_song_secs=200)
+
+    system = llm.calls[0][0].content
+    assert "Prefer tracks whose tags align" in system
+    assert "Span eras" in system
