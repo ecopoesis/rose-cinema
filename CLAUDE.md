@@ -22,7 +22,7 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 - **TTS**: Piper, via the `piper` CLI as a subprocess. Voices live under `data/piper_models/` (path is `settings.piper_data_dir`, threaded into `--data-dir`). Default fallback is `en_US-lessac-medium` (auto-downloadable). The Bryce Beattie narrator set (`cori-high`, `kristin`, `bryce`, `norman`, `mv2`, `jenny`) is baked into the Docker image.
 - **Playback**: [Music Assistant](https://music-assistant.io/) is the playback bridge. It runs as its own stack (`deploy/music-assistant/docker-compose.yml`), with **host networking** on Linux so mDNS sees the LAN. radiobot talks to it over WebSocket. *No pyatv.*
 - **Database**: PostgreSQL 17 via SQLAlchemy async (asyncpg driver) + Alembic. Repository pattern with abstract interfaces in `repositories/__init__.py` and SQL implementations in `repositories/sql.py`. `alembic upgrade head` runs at container start. The `DATABASE_URL` env var overrides the default connection string; Alembic auto-converts `+asyncpg` to the sync `postgresql://` scheme.
-- **DJ personalities**: Markdown blob in the `djs.agent_md` column. Two samples in `agents/`: Velvet (late-night) and Spark (morning drive).
+- **DJ personalities**: Markdown blob in the `djs.agent_md` column. Two samples in `agents/`: Velvet (late-night) and Spark (morning drive). Per-DJ `voice_ticks` bool (default off) gates the Chatterbox non-verbal expression tags (`[laugh]`, `[sigh]`, …) — off strips any stray tags from generated scripts.
 
 ## Key abstractions
 
@@ -65,7 +65,7 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 - `GET`/`PUT /api/settings/exclusions` — global excluded-artists list (app_settings table); merged with per-station `excluded_artists` at generation time
 - Queue worker with PG LISTEN/NOTIFY — 10 step types, retry up to 3x, crash recovery on startup
 - Web UI mounted at `/` — list stations, "Generate" button (polls for progress)
-- Alembic migrations 001–017
+- Alembic migrations 001–018
 - Docker stack: PostgreSQL 17 + radiobot, Portainer-managed
 
 ## Notable backlog (GitHub issues)

@@ -23,6 +23,18 @@ def _strip_stage_directions(text: str) -> str:
     return cleaned.strip()
 
 
+_TICK_TAG_RE = re.compile(r"\[[^\]]*\]")
+
+
+def strip_voice_ticks(text: str) -> str:
+    """Remove [laugh]-style expression tags the LLM emits despite instructions.
+
+    Brackets only — parentheticals may be legitimate spoken text.
+    """
+    cleaned = _TICK_TAG_RE.sub("", text)
+    return re.sub(r"  +", " ", cleaned).strip()
+
+
 def _estimate_word_count(max_seconds: float, babble_rate: float) -> int:
     """Estimate target word count from duration. Average speech ≈ 150 wpm."""
     wpm = 150
@@ -35,7 +47,7 @@ def build_system_prompt(
     dj: DJRecord, babble_rate: float, max_seconds: int, weather: str = "",
 ) -> str:
     word_count = _estimate_word_count(max_seconds, babble_rate)
-    uses_chatterbox = dj.tts_provider == "chatterbox"
+    uses_ticks = dj.tts_provider == "chatterbox" and dj.voice_ticks
 
     base = (
         "You are a radio DJ. Your job is to introduce songs, provide transitions, "
@@ -43,7 +55,7 @@ def build_system_prompt(
         "RULES:\n"
     )
 
-    if uses_chatterbox:
+    if uses_ticks:
         base += "- Speak naturally as if on air. No stage directions or metadata.\n"
     else:
         base += "- Speak naturally as if on air. No stage directions, no sound effects in brackets.\n"
@@ -55,7 +67,7 @@ def build_system_prompt(
         "- Don't make up facts about songs. If you don't know, be vague.\n"
     )
 
-    if uses_chatterbox:
+    if uses_ticks:
         base += (
             "\nVOICE EXPRESSION:\n"
             "You can embed these tags in your speech for natural vocal expression: "
@@ -119,11 +131,14 @@ class DJScriptService:
             f"You're opening your radio show '{station_name}'. "
             "Give a welcoming intro to kick things off."
         )
-        return await self._llm.complete(
+        script = await self._llm.complete(
             messages=[LLMMessage("system", system), LLMMessage("user", user)],
             temperature=0.9,
             max_tokens=4000,
         )
+        if not dj.voice_ticks:
+            script = strip_voice_ticks(script)
+        return script
 
     async def generate_transition(
         self,
@@ -160,11 +175,14 @@ class DJScriptService:
 
         user += "\n\nProvide a natural transition between these songs."
 
-        return await self._llm.complete(
+        script = await self._llm.complete(
             messages=[LLMMessage("system", system), LLMMessage("user", user)],
             temperature=0.85,
             max_tokens=4000,
         )
+        if not dj.voice_ticks:
+            script = strip_voice_ticks(script)
+        return script
 
     def should_talk(self, talk_rate: float) -> bool:
         """Probabilistic check based on talk_rate."""

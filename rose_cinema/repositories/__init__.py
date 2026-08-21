@@ -15,6 +15,7 @@ class DJRecord:
     tts_provider: str = "piper"
     tts_voice_id: str = "en_US-lessac-medium"
     tts_voice_ref: str = ""
+    voice_ticks: bool = False
 
 
 @dataclass

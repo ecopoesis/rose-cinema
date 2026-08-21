@@ -10,6 +10,7 @@
   let tts_provider = $state(init.tts_provider ?? 'piper');
   let tts_voice_id = $state(init.tts_voice_id ?? 'en_US-lessac-medium');
   let tts_voice_ref = $state(init.tts_voice_ref ?? '');
+  let voice_ticks = $state(init.voice_ticks ?? false);
   let agent_md = $state(init.agent_md ?? '');
   let saving = $state(false);
 
@@ -27,6 +28,7 @@
         tts_provider,
         tts_voice_id: tts_voice_id.trim() || 'en_US-lessac-medium',
         tts_voice_ref: tts_voice_ref.trim(),
+        voice_ticks,
         agent_md,
       });
     } finally { saving = false; }
@@ -65,6 +67,12 @@
         <label for="d-voiceref">Voice Reference (mp3/wav filename for cloning, optional)</label>
         <input id="d-voiceref" bind:value={tts_voice_ref}
                placeholder="e.g. my_voice.wav — must exist on Chatterbox server">
+      </div>
+      <div class="field">
+        <label for="d-ticks">
+          <input id="d-ticks" type="checkbox" bind:checked={voice_ticks}>
+          Non-verbal ticks <span class="hint">(laughs, sighs, etc. in the patter)</span>
+        </label>
       </div>
     {/if}
     <div class="field">

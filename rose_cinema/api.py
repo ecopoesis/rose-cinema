@@ -156,6 +156,7 @@ async def create_dj(body: DJCreate, session: AsyncSession = Depends(get_session)
         tts_provider=body.tts_provider,
         tts_voice_id=body.tts_voice_id,
         tts_voice_ref=body.tts_voice_ref,
+        voice_ticks=body.voice_ticks,
     ))
     return DJResponse(**record.__dict__)
 
@@ -179,6 +180,8 @@ async def update_dj(
         existing.tts_voice_id = body.tts_voice_id
     if body.tts_voice_ref is not None:
         existing.tts_voice_ref = body.tts_voice_ref
+    if body.voice_ticks is not None:
+        existing.voice_ticks = body.voice_ticks
 
     updated = await repo.update(existing)
     return DJResponse(**updated.__dict__)
@@ -790,7 +793,7 @@ async def export_all(session: AsyncSession = Depends(get_session)):
             DJExport(
                 name=d.name, agent_md=d.agent_md,
                 tts_provider=d.tts_provider, tts_voice_id=d.tts_voice_id,
-                tts_voice_ref=d.tts_voice_ref,
+                tts_voice_ref=d.tts_voice_ref, voice_ticks=d.voice_ticks,
             )
             for d in all_djs
         ],
@@ -833,7 +836,7 @@ async def import_all(body: ExportData, session: AsyncSession = Depends(get_sessi
         record = await dj_repo.create(DJRecord(
             name=dj_data.name, agent_md=dj_data.agent_md,
             tts_provider=dj_data.tts_provider, tts_voice_id=dj_data.tts_voice_id,
-            tts_voice_ref=dj_data.tts_voice_ref,
+            tts_voice_ref=dj_data.tts_voice_ref, voice_ticks=dj_data.voice_ticks,
         ))
         dj_name_map[record.name] = record.id
         djs_created += 1

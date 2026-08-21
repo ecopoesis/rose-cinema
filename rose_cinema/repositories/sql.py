@@ -42,6 +42,7 @@ def _dj_to_record(dj: DJ) -> DJRecord:
         tts_provider=dj.tts_provider,
         tts_voice_id=dj.tts_voice_id,
         tts_voice_ref=dj.tts_voice_ref or "",
+        voice_ticks=dj.voice_ticks,
     )
 
 
@@ -122,6 +123,7 @@ class SqlDJRepository(DJRepository):
             tts_provider=record.tts_provider,
             tts_voice_id=record.tts_voice_id,
             tts_voice_ref=record.tts_voice_ref or None,
+            voice_ticks=record.voice_ticks,
         )
         self._session.add(obj)
         await self._session.commit()
@@ -137,6 +139,7 @@ class SqlDJRepository(DJRepository):
         obj.tts_provider = record.tts_provider
         obj.tts_voice_id = record.tts_voice_id
         obj.tts_voice_ref = record.tts_voice_ref or None
+        obj.voice_ticks = record.voice_ticks
         await self._session.commit()
         await self._session.refresh(obj)
         return _dj_to_record(obj)

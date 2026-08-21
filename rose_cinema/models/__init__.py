@@ -5,8 +5,8 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
-    Date, Float, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint,
-    func,
+    Boolean, Date, Float, Integer, String, Text, DateTime, ForeignKey,
+    UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -33,6 +33,7 @@ class DJ(Base):
     tts_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="piper")
     tts_voice_id: Mapped[str] = mapped_column(String(200), nullable=False, default="en_US-lessac-medium")
     tts_voice_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    voice_ticks: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
