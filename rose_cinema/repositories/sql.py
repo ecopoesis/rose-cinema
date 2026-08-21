@@ -288,6 +288,24 @@ class SqlPlaylistRunRepository(PlaylistRunRepository):
                     ids.add(entry["apple_music_id"])
         return ids
 
+    async def list_recent_artist_names(self, station_id: str, max_runs: int = 3) -> set[str]:
+        result = await self._session.execute(
+            select(PlaylistRun.playlist_json)
+            .where(PlaylistRun.station_id == station_id, PlaylistRun.status == "ready")
+            .order_by(PlaylistRun.created_at.desc())
+            .limit(max_runs)
+        )
+        names: set[str] = set()
+        for (playlist_json,) in result.all():
+            try:
+                entries = json.loads(playlist_json)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for entry in entries:
+                if entry.get("type") == "song" and entry.get("artist"):
+                    names.add(entry["artist"].lower().strip())
+        return names
+
     async def create(self, record: PlaylistRunRecord) -> PlaylistRunRecord:
         result = await self._session.execute(
             select(func.max(PlaylistRun.episode))

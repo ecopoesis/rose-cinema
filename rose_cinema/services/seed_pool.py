@@ -51,6 +51,7 @@ class SeedPool:
     style_hint: str = ""
     constraints: str = ""
     variety: VarietyParams = field(default_factory=VarietyParams)
+    recent_artists: tuple[str, ...] = ()
 
 
 _DEFAULT_PER_ARTIST_POOL_CAP = 4
@@ -107,6 +108,7 @@ class SeedPoolBuilder:
         genre_variety: float = 0.5,
         year_variety: float = 0.5,
         popularity_variety: float = 0.0,
+        recent_artists: list[str] | None = None,
     ) -> SeedPool:
         seed_label = music_source.strip()
 
@@ -162,6 +164,7 @@ class SeedPoolBuilder:
         )
 
         _apply_year_window(pool, year_variety, target_count)
+        _apply_artist_rotation(pool, recent_artists, target_count)
 
         await self._enrich_with_tags(pool)
         logger.info(
@@ -967,6 +970,53 @@ def _apply_year_window(pool: SeedPool, year_variety: float, target_count: int) -
             "year window ±%d around %d dropped %d/%d tracks (year_variety=%.2f)",
             half_width, median, before - len(pool.tracks), before, year_variety,
         )
+
+
+def _apply_artist_rotation(
+    pool: SeedPool, recent_artists: list[str] | None, target_count: int,
+) -> None:
+    """Down-weight artists featured in recent runs, never the seed artist.
+
+    With a rich pool their tracks are dropped outright; with a thin one each
+    recent artist keeps half its tracks. Survivors are named on the pool so
+    the curation prompt can deprioritize them.
+    """
+    if not recent_artists or not pool.tracks:
+        return
+    recent = {n.lower().strip() for n in recent_artists}
+    seed_name = pool.seed_artist.name.lower().strip() if pool.seed_artist else None
+    recent.discard(seed_name)
+    if not recent:
+        return
+
+    fresh = [t for t in pool.tracks if t.artist.lower().strip() not in recent]
+    if len(fresh) >= max(target_count * 4, 32):
+        dropped = len(pool.tracks) - len(fresh)
+        pool.tracks = fresh
+        logger.info("artist rotation: dropped %d tracks by recently-featured artists", dropped)
+        return
+
+    kept: list[CatalogTrack] = []
+    counts: dict[str, int] = defaultdict(int)
+    totals: dict[str, int] = defaultdict(int)
+    for t in pool.tracks:
+        totals[t.artist.lower().strip()] += 1
+    survivors: set[str] = set()
+    for t in pool.tracks:
+        key = t.artist.lower().strip()
+        if key in recent:
+            if counts[key] >= max(1, totals[key] // 2):
+                continue
+            counts[key] += 1
+            survivors.add(t.artist)
+        kept.append(t)
+    if len(kept) < len(pool.tracks):
+        logger.info(
+            "artist rotation: thin pool — halved recent artists (%d tracks dropped)",
+            len(pool.tracks) - len(kept),
+        )
+    pool.tracks = kept
+    pool.recent_artists = tuple(sorted(survivors))
 
 
 def _dedup_names(names: list[str]) -> list[str]:

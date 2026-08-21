@@ -120,7 +120,14 @@ class CronScheduler:
                 station.id[:8], station.name, schedule,
             )
 
-            exclude_ids = list(await run_repo.list_recent_track_ids(station.id, max_runs=3))
+            exclude_ids = (
+                list(await run_repo.list_recent_track_ids(station.id, max_runs=station.history_runs))
+                if station.history_runs > 0 else []
+            )
+            recent_artists = (
+                sorted(await run_repo.list_recent_artist_names(station.id, max_runs=station.history_runs))
+                if station.history_runs > 0 else []
+            )
             queue = EventQueue(self._sf)
             await queue.enqueue(
                 session, run.id, "pick_tracks", 0,
@@ -141,6 +148,7 @@ class CronScheduler:
                     "genre_variety": station.genre_variety,
                     "year_variety": station.year_variety,
                     "popularity_variety": station.popularity_variety,
+                    "recent_artists": recent_artists,
                 },
             )
             await session.commit()

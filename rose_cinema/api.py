@@ -382,6 +382,10 @@ async def generate_playlist(
         list(await run_repo.list_recent_track_ids(station.id, max_runs=station.history_runs))
         if station.history_runs > 0 else []
     )
+    recent_artists = (
+        sorted(await run_repo.list_recent_artist_names(station.id, max_runs=station.history_runs))
+        if station.history_runs > 0 else []
+    )
 
     songs_override = None
     if body.songs:
@@ -414,6 +418,7 @@ async def generate_playlist(
             "genre_variety": station.genre_variety,
             "year_variety": station.year_variety,
             "popularity_variety": station.popularity_variety,
+            "recent_artists": recent_artists,
         },
     )
     await session.commit()
@@ -616,6 +621,10 @@ async def test_playlist(
         set(await run_repo.list_recent_track_ids(station_id, max_runs=station.history_runs))
         if station.history_runs > 0 else set()
     )
+    recent_artists = (
+        sorted(await run_repo.list_recent_artist_names(station_id, max_runs=station.history_runs))
+        if station.history_runs > 0 else []
+    )
 
     songs = await TrackPicker(llm, catalog, seed_builder).pick(
         music_source=station.music_source,
@@ -628,6 +637,7 @@ async def test_playlist(
         genre_variety=station.genre_variety,
         year_variety=station.year_variety,
         popularity_variety=station.popularity_variety,
+        recent_artists=recent_artists,
         excluded_artists=merge_exclusions(
             await get_global_excluded_artists(session),
             station.excluded_artists,

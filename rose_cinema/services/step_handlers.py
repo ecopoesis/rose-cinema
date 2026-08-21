@@ -78,6 +78,7 @@ async def handle_pick_tracks(payload: dict) -> dict:
         genre_variety=payload.get("genre_variety", 0.5),
         year_variety=payload.get("year_variety", 0.5),
         popularity_variety=payload.get("popularity_variety", 0.0),
+        recent_artists=payload.get("recent_artists"),
         excluded_artists=payload.get("excluded_artists"),
     )
     logger.info("pick_tracks: selected %d songs for station %s", len(songs), station_id[:8])

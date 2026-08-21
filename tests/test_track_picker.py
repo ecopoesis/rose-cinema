@@ -237,3 +237,16 @@ async def test_variety_defaults_keep_current_prompt_lines():
     system = llm.calls[0][0].content
     assert "Prefer tracks whose tags align" in system
     assert "Span eras" in system
+
+
+@pytest.mark.asyncio
+async def test_recent_artists_named_in_prompt():
+    pool = _pool(mk_track("T0", "T0", "A"), mk_track("T1", "T1", "B"))
+    pool.recent_artists = ("Similar 0",)
+    llm = FakeLLM(['{"picks": [0, 1]}'])
+    picker = TrackPicker(llm, catalog=None, seed_builder=FakeSeedBuilder(pool))
+
+    await picker.pick(music_source="seed", target_minutes=7, avg_song_secs=200)
+
+    assert "Recently featured" in llm.calls[0][0].content
+    assert "Similar 0" in llm.calls[0][0].content

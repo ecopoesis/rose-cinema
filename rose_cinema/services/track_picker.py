@@ -71,6 +71,7 @@ class TrackPicker:
         genre_variety: float = 0.5,
         year_variety: float = 0.5,
         popularity_variety: float = 0.0,
+        recent_artists: list[str] | None = None,
         excluded_artists: list[str] | None = None,
     ) -> list[SongMetadata]:
         target_count = max(3, round((target_minutes * 60) / avg_song_secs))
@@ -86,6 +87,7 @@ class TrackPicker:
                 genre_variety=genre_variety,
                 year_variety=year_variety,
                 popularity_variety=popularity_variety,
+                recent_artists=recent_artists,
             )
             if excluded and pool.tracks:
                 before = len(pool.tracks)
@@ -135,6 +137,12 @@ class TrackPicker:
             f"- Constraint: {pool.constraints}.\n"
             if pool.constraints else ""
         )
+        recent_rule = ""
+        if pool.recent_artists:
+            names = ", ".join(sorted(pool.recent_artists)[:15])
+            recent_rule = (
+                f"- Recently featured (deprioritize unless nothing better fits): {names}.\n"
+            )
 
         v = pool.variety
         system = (
@@ -149,6 +157,7 @@ class TrackPicker:
             f"{constraint_rule}"
             f"{_year_rule(v.year)}"
             f"{_popularity_rule(v.popularity)}"
+            f"{recent_rule}"
             "- Order for arc: opener with energy, mid section deeper cuts, closer that resolves.\n"
             "No commentary, no extra keys."
         )

@@ -618,3 +618,54 @@ async def test_deep_cut_misses_are_negative_cached():
 
     assert graph.resolutions["rec-0"].apple_music_id is None
     assert all(t.title.startswith("Hit") for t in pool.tracks)
+
+
+# ── Artist rotation ────────────────────────────────────────────────────
+
+
+def _rotation_fixture(n_similar: int):
+    seed = mk_artist("1", "Seed Artist")
+    similars = [mk_artist(str(10 + i), f"Similar {i}") for i in range(n_similar)]
+    views = {
+        "1": _views(
+            seed,
+            [mk_track(f"1{i}", f"S{i}", seed.name) for i in range(10)],
+            similars,
+        ),
+    }
+    for i, a in enumerate(similars):
+        views[a.apple_music_id] = _views(
+            a, [mk_track(f"{a.apple_music_id}{j}", f"T{i}-{j}", a.name) for j in range(12)],
+        )
+    return FakeCatalog(artists_by_query={"seed artist": [seed]}, artist_views=views)
+
+
+@pytest.mark.asyncio
+async def test_rotation_drops_recent_artists_from_rich_pool():
+    catalog = _rotation_fixture(8)
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+
+    pool = await builder.build(
+        "Seed Artist", target_count=3, discovery_rate=1.0,
+        recent_artists=["similar 0", "Seed Artist"],
+    )
+
+    artists = {t.artist for t in pool.tracks}
+    assert "Similar 0" not in artists
+    assert "Seed Artist" in artists  # seed is never rotated out
+    assert pool.recent_artists == ()
+
+
+@pytest.mark.asyncio
+async def test_rotation_halves_recent_artists_in_thin_pool():
+    catalog = _rotation_fixture(1)
+    builder = SeedPoolBuilder(catalog, FakeLLM([]))
+
+    pool = await builder.build(
+        "Seed Artist", target_count=6, discovery_rate=1.0,
+        recent_artists=["similar 0"],
+    )
+
+    kept = [t for t in pool.tracks if t.artist == "Similar 0"]
+    assert len(kept) == 2  # 4 sampled tracks halved
+    assert pool.recent_artists == ("Similar 0",)
