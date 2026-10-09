@@ -8,7 +8,9 @@ class Settings(BaseSettings):
     # LLM
     llm_provider: str = Field(default="anthropic")  # "anthropic" | anything else = OpenAI-compatible
     llm_model: str = Field(default="claude-sonnet-5-5")
-    llm_effort: Literal["low", "medium", "high", "xhigh", "max"] = Field(default="low")  # anthropic only
+    # anthropic only: reasoning effort per kind of step
+    llm_effort_picks: Literal["low", "medium", "high", "xhigh", "max"] = Field(default="high")
+    llm_effort_patter: Literal["low", "medium", "high", "xhigh", "max"] = Field(default="medium")
     anthropic_api_key: str = Field(default="")
     anthropic_api_key_file: str = Field(default="")  # used when anthropic_api_key is empty
     llm_base_url: str = Field(default="http://ollama:11434/v1")  # OpenAI-compatible path only

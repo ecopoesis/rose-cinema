@@ -67,14 +67,15 @@ Full backlog: <https://github.com/ecopoesis/rose-cinema/issues>
 ## Architecture decisions
 
 - **LLM**: two provider paths, chosen by `LLM_PROVIDER`.
-  - `anthropic` (default) — native Messages API through the official `anthropic` SDK, model `claude-sonnet-5-5`. Adaptive thinking is always on; depth is set with `LLM_EFFORT` (default `low`). Sampling parameters are not sent (the model rejects them), and requests opt into Anthropic's server-side refusal fallback. Needs an API key: `ANTHROPIC_API_KEY`, or a key file at `ANTHROPIC_API_KEY_FILE`.
+  - `anthropic` (default) — native Messages API through the official `anthropic` SDK, model `claude-sonnet-5-5`. Adaptive thinking is always on; depth is set per step type: `LLM_EFFORT_PICKS` (default `high`) for track curation and `LLM_EFFORT_PATTER` (default `medium`) for DJ scripts. Sampling parameters are not sent (the model rejects them), and requests opt into Anthropic's server-side refusal fallback. Needs an API key: `ANTHROPIC_API_KEY`, or a key file at `ANTHROPIC_API_KEY_FILE`.
   - anything else (e.g. `ollama`) — any OpenAI-compatible chat completions endpoint via `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`. Ollama (local, free) is the tested alternative; OpenAI / OpenRouter work the same way.
 
   | Env var | Default | Effect |
   |---|---|---|
   | `LLM_PROVIDER` | `anthropic` | `anthropic` = native Anthropic API; any other value = OpenAI-compatible endpoint |
   | `LLM_MODEL` | `claude-sonnet-5-5` | model ID for the chosen provider |
-  | `LLM_EFFORT` | `low` | Anthropic only: `low` / `medium` / `high` / `xhigh` / `max` |
+  | `LLM_EFFORT_PICKS` | `high` | Anthropic only, track curation: `low` / `medium` / `high` / `xhigh` / `max` |
+  | `LLM_EFFORT_PATTER` | `medium` | Anthropic only, DJ intro and transition scripts: same values |
   | `ANTHROPIC_API_KEY` | *(empty)* | Anthropic key; wins over the key file |
   | `ANTHROPIC_API_KEY_FILE` | *(empty; `/run/secrets/anthropic_api_key` in Docker)* | path to a file holding the key, used when `ANTHROPIC_API_KEY` is empty. A missing path, a directory, or an empty file counts as "no key" |
   | `ANTHROPIC_API_KEY_HOST_FILE` | `/home/miker/.rose-cinema-anthropic` | docker-compose only: host file bind-mounted read-only at `/run/secrets/anthropic_api_key` |

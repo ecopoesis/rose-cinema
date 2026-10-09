@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from rose_cinema.config import settings
 from rose_cinema.providers import LLMProvider, TTSProvider
 from rose_cinema.providers.llm_openai_compat import OpenAICompatibleLLM
@@ -9,8 +11,11 @@ from rose_cinema.providers.tts_openai import OpenAITTS
 from rose_cinema.providers.tts_chatterbox import ChatterboxTTS
 
 
-def get_llm_provider() -> LLMProvider:
+def get_llm_provider(task: Literal["picks", "patter"] = "picks") -> LLMProvider:
     """Resolve the configured LLM provider.
+
+    `task` selects the Anthropic reasoning effort: track curation gets more
+    than DJ patter.
 
     "anthropic" uses the native Messages API; anything else is treated as an
     OpenAI-compatible endpoint (Ollama, OpenAI, OpenRouter, ...).
@@ -27,7 +32,10 @@ def get_llm_provider() -> LLMProvider:
         return AnthropicLLM(
             api_key=resolve_anthropic_api_key(),
             model=settings.llm_model,
-            effort=settings.llm_effort,
+            effort=(
+                settings.llm_effort_patter if task == "patter"
+                else settings.llm_effort_picks
+            ),
         )
     return OpenAICompatibleLLM(
         base_url=settings.llm_base_url,

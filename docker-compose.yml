@@ -35,7 +35,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://rose:${POSTGRES_PASSWORD:-rose}@postgres:5432/rose_cinema
       LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
       LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5-5}
-      LLM_EFFORT: ${LLM_EFFORT:-low}
+      LLM_EFFORT_PICKS: ${LLM_EFFORT_PICKS:-high}
+      LLM_EFFORT_PATTER: ${LLM_EFFORT_PATTER:-medium}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_API_KEY_FILE: /run/secrets/anthropic_api_key
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}

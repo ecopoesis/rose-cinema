@@ -297,16 +297,19 @@ class TestFactory:
         from rose_cinema.config import Settings
 
         with pytest.raises(ValidationError):
-            Settings(llm_effort="hihg")
+            Settings(llm_effort_picks="hihg")
 
     def test_anthropic_selected(self, monkeypatch):
         monkeypatch.setattr(settings, "llm_provider", "anthropic")
         monkeypatch.setattr(settings, "llm_model", "claude-sonnet-5-5")
-        monkeypatch.setattr(settings, "llm_effort", "medium")
+        monkeypatch.setattr(settings, "llm_effort_picks", "high")
+        monkeypatch.setattr(settings, "llm_effort_patter", "medium")
         monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
         llm = factory.get_llm_provider()
         assert isinstance(llm, AnthropicLLM)
-        assert (llm._model, llm._effort) == ("claude-sonnet-5-5", "medium")
+        assert (llm._model, llm._effort) == ("claude-sonnet-5-5", "high")
+        assert factory.get_llm_provider("picks")._effort == "high"
+        assert factory.get_llm_provider("patter")._effort == "medium"
 
     def test_anthropic_without_key_fails_at_construction_not_import(self, monkeypatch):
         monkeypatch.setattr(settings, "llm_provider", "anthropic")
@@ -453,7 +456,7 @@ class TestRefusedSteps:
             return DJRecord(id=dj_id, name="Velvet", agent_md="Be smooth.")
 
         monkeypatch.setattr(step_handlers, "_load_dj", load_dj)
-        monkeypatch.setattr(step_handlers, "get_llm_provider", lambda: _RefusingLLM())
+        monkeypatch.setattr(step_handlers, "get_llm_provider", lambda task="picks": _RefusingLLM())
         self.handlers = step_handlers
 
     async def test_refused_intro_returns_empty_script(self):

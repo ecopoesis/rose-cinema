@@ -104,7 +104,7 @@ async def handle_generate_intro_script(payload: dict) -> dict:
 
     from rose_cinema.services.dj_script import DJScriptService
 
-    llm = get_llm_provider()
+    llm = get_llm_provider("patter")
     service = DJScriptService(llm)
     try:
         script = await service.generate_intro(
@@ -145,7 +145,7 @@ async def handle_generate_transition(payload: dict) -> dict:
 
     from rose_cinema.services.dj_script import DJScriptService
 
-    llm = get_llm_provider()
+    llm = get_llm_provider("patter")
     service = DJScriptService(llm)
     try:
         script = await service.generate_transition(
