@@ -1030,11 +1030,20 @@ def _dedup_names(names: list[str]) -> list[str]:
     return out
 
 
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
-
-
 def _extract_json_object(text: str) -> str:
-    m = _JSON_OBJECT_RE.search(text)
-    if not m:
+    # Take the last decodable object: models sometimes emit an answer, then
+    # second-guess it in prose and emit a corrected one.
+    decoder = json.JSONDecoder()
+    last: str | None = None
+    i = text.find("{")
+    while i != -1:
+        try:
+            _, end = decoder.raw_decode(text, i)
+        except ValueError:
+            i = text.find("{", i + 1)
+            continue
+        last = text[i:end]
+        i = text.find("{", end)
+    if last is None:
         raise ValueError(f"no JSON object found in: {text[:200]!r}")
-    return m.group(0)
+    return last

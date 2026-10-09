@@ -136,6 +136,24 @@ async def test_pool_path_handles_unparseable_llm_output():
 
 
 @pytest.mark.asyncio
+async def test_pool_path_uses_corrected_picks_after_self_correction():
+    """A reply that revises itself in prose is parsed from its last JSON object."""
+    pool = _pool(
+        mk_track("T0", "T0", "A"),
+        mk_track("T1", "T1", "B"),
+        mk_track("T2", "T2", "C"),
+    )
+    llm = FakeLLM([
+        '{"picks":[0,0]}\n\nWait, I have duplicates. Corrected:\n\n{"picks":[2,1]}'
+    ])
+    picker = TrackPicker(llm, catalog=None, seed_builder=FakeSeedBuilder(pool))
+
+    songs = await picker.pick(music_source="seed", target_minutes=6, avg_song_secs=200)
+    # target_count floors at 3, so the top-up appends T0 after the two picks.
+    assert [s.apple_music_id for s in songs] == ["T2", "T1", "T0"]
+
+
+@pytest.mark.asyncio
 async def test_pool_listing_includes_genre_tags():
     """When pool.artist_tags is populated, the LLM prompt includes {tag, tag} per track."""
     pool = SeedPool(
