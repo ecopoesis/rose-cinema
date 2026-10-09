@@ -17,7 +17,7 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 
 ## Architecture decisions
 
-- **LLM**: any OpenAI-compatible chat completions endpoint. Ollama is the default. On the server it runs as its own stack (`deploy/ollama/`) with host networking + Open WebUI on :3000; rose-cinema reaches it via `http://host.docker.internal:11434/v1`. On Mac native dev it's `http://localhost:11434/v1`. Anthropic / OpenAI / OpenRouter all work by swapping `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`. Default model is the Qwen3 MoE: `qwen3:30b-a3b-instruct-2507-q4_K_M` (30B total / 3B active, ~18 GB on disk, fits comfortably in ~19 GiB free RAM). Newer `qwen3.6:35b-a3b` is sharper but its q4_K_M needs ~25 GiB to load — won't fit on typical 16-32 GiB servers without GPU offload. Dense `qwen3.6:27b/:35b` work but are 5-10× slower on CPU.
+- **LLM**: `LLM_PROVIDER=anthropic` (default) uses the native Anthropic Messages API via the official `anthropic` SDK (`providers/llm_anthropic.py`), model `claude-sonnet-5-5`; key from `ANTHROPIC_API_KEY` or the file at `ANTHROPIC_API_KEY_FILE`. See CLAUDE.md for the request rules. Any other `LLM_PROVIDER` value uses an OpenAI-compatible chat completions endpoint; Ollama is the tested alternative. On the server Ollama runs as its own stack (`deploy/ollama/`) with host networking + Open WebUI on :3000; rose-cinema reaches it via `http://host.docker.internal:11434/v1`. On Mac native dev it's `http://localhost:11434/v1`. OpenAI / OpenRouter work by swapping `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`. The recommended Ollama model is the Qwen3 MoE: `qwen3:30b-a3b-instruct-2507-q4_K_M` (30B total / 3B active, ~18 GB on disk, fits comfortably in ~19 GiB free RAM). Newer `qwen3.6:35b-a3b` is sharper but its q4_K_M needs ~25 GiB to load — won't fit on typical 16-32 GiB servers without GPU offload. Dense `qwen3.6:27b/:35b` work but are 5-10× slower on CPU.
 - **Apple Music catalog**: MusicKit REST API. Developer JWT (ES256, 90-day lifetime, lazy-cached) signed with a `.p8` key. Read-only; used for track verification and canonical metadata. Private key supplied either as a file path (`MUSICKIT_PRIVATE_KEY_PATH`) or inline base64 (`MUSICKIT_PRIVATE_KEY`).
 - **TTS**: Piper, via the `piper` CLI as a subprocess. Voices live under `data/piper_models/` (path is `settings.piper_data_dir`, threaded into `--data-dir`). Default fallback is `en_US-lessac-medium` (auto-downloadable). The Bryce Beattie narrator set (`cori-high`, `kristin`, `bryce`, `norman`, `mv2`, `jenny`) is baked into the Docker image.
 - **Playback**: [Music Assistant](https://music-assistant.io/) is the playback bridge. It runs as its own stack (`deploy/music-assistant/docker-compose.yml`), with **host networking** on Linux so mDNS sees the LAN. radiobot talks to it over WebSocket. *No pyatv.*
@@ -64,15 +64,14 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 Server (Portainer-managed):
 
 ```bash
-# After stack is up, one-time model pull:
+# Only when LLM_PROVIDER=ollama — one-time model pull:
 docker compose exec ollama ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M
 ```
 
 Local dev (Apple Silicon):
 
 ```bash
-brew services start ollama
-ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M
+# LLM: ANTHROPIC_API_KEY_FILE=.rose-cinema-anthropic in .env (or LLM_PROVIDER=ollama + `ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M`)
 .venv/bin/alembic upgrade head
 .venv/bin/uvicorn rose_cinema.api:app --host 0.0.0.0 --port 8765
 .venv/bin/pytest tests/

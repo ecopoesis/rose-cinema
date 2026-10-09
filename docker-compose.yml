@@ -29,13 +29,17 @@ services:
       - "8765:8000"
     volumes:
       - /opt/containers/rose-cinema:/app/data
+      - ${ANTHROPIC_API_KEY_HOST_FILE:-/home/miker/.rose-cinema-anthropic}:/run/secrets/anthropic_api_key:ro
       - music-assistant_ma_data:/ma-data:ro
     environment:
       DATABASE_URL: postgresql+asyncpg://rose:${POSTGRES_PASSWORD:-rose}@postgres:5432/rose_cinema
-      LLM_PROVIDER: ollama
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5-5}
+      LLM_EFFORT: ${LLM_EFFORT:-low}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_KEY_FILE: /run/secrets/anthropic_api_key
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
-      LLM_MODEL: ${LLM_MODEL:-qwen3.6:27b}
-      LLM_API_KEY: ollama
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
       TTS_PROVIDER: piper
       PIPER_DATA_DIR: /app/data/piper_models
       MUSICKIT_TEAM_ID: ${MUSICKIT_TEAM_ID:-}

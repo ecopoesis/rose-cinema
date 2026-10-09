@@ -9,3 +9,4 @@ data/
 .keys/
 web/node_modules/
 web/dist/
+.rose-cinema-anthropic

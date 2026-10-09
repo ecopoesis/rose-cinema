@@ -97,6 +97,8 @@ def _run_to_record(r: PlaylistRun) -> PlaylistRunRecord:
         episode=r.episode,
         ma_playlist_id=r.ma_playlist_id,
         generation_secs=r.generation_secs,
+        llm_input_tokens=r.llm_input_tokens,
+        llm_output_tokens=r.llm_output_tokens,
         created_at=r.created_at.isoformat() if r.created_at else None,
     )
 
@@ -336,6 +338,8 @@ class SqlPlaylistRunRepository(PlaylistRunRepository):
         obj.episode = record.episode
         obj.ma_playlist_id = record.ma_playlist_id
         obj.generation_secs = record.generation_secs
+        # llm_*_tokens are deliberately not copied: they change only through
+        # the queue worker's atomic increment, and the DTO may be stale.
         await self._session.commit()
         await self._session.refresh(obj)
         return _run_to_record(obj)

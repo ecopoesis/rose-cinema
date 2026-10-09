@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable, Awaitable
 
 from rose_cinema.config import settings
+from rose_cinema.providers import LLMRefusalError
 from rose_cinema.providers.factory import get_llm_provider, get_tts_provider
 from rose_cinema.repositories import DJRecord, PlaylistRunRecord
 from rose_cinema.services.station_builder import SongMetadata, PlaylistEntry, _tag_dj_audio
@@ -105,13 +106,18 @@ async def handle_generate_intro_script(payload: dict) -> dict:
 
     llm = get_llm_provider()
     service = DJScriptService(llm)
-    script = await service.generate_intro(
-        dj=dj,
-        station_name=payload["station_name"],
-        babble_rate=payload["babble_rate"],
-        max_seconds=payload["max_secs"],
-        weather=payload.get("weather", ""),
-    )
+    try:
+        script = await service.generate_intro(
+            dj=dj,
+            station_name=payload["station_name"],
+            babble_rate=payload["babble_rate"],
+            max_seconds=payload["max_secs"],
+            weather=payload.get("weather", ""),
+        )
+    except LLMRefusalError as exc:
+        # An empty script makes the queue skip this segment instead of retrying.
+        logger.warning("Intro script refused, skipping segment: %s", exc)
+        script = ""
     return {"script": script}
 
 
@@ -141,14 +147,18 @@ async def handle_generate_transition(payload: dict) -> dict:
 
     llm = get_llm_provider()
     service = DJScriptService(llm)
-    script = await service.generate_transition(
-        dj=dj,
-        previous_song=payload.get("previous_song"),
-        next_song=payload["next_song"],
-        babble_rate=payload["babble_rate"],
-        max_seconds=payload["max_secs"],
-        weather=payload.get("weather", ""),
-    )
+    try:
+        script = await service.generate_transition(
+            dj=dj,
+            previous_song=payload.get("previous_song"),
+            next_song=payload["next_song"],
+            babble_rate=payload["babble_rate"],
+            max_seconds=payload["max_secs"],
+            weather=payload.get("weather", ""),
+        )
+    except LLMRefusalError as exc:
+        logger.warning("Transition script refused, skipping segment: %s", exc)
+        script = ""
     return {"script": script, "song_index": payload.get("song_index", 0)}
 
 

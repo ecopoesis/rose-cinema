@@ -13,6 +13,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from rose_cinema.models import GenerationEvent, PlaylistRun, Station, DJ
+from rose_cinema.providers.usage import LLMUsage, track_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -296,20 +297,49 @@ class QueueWorker:
                 await session.commit()
             return
 
-        try:
-            result = await handler(event.payload or {})
-        except Exception as exc:
-            async with self._sf() as session:
-                ev = await session.get(GenerationEvent, event.id)
-                await self._queue.fail(session, ev, str(exc)[:500])
-                await session.commit()
-            return
+        with track_llm_usage() as usage:
+            try:
+                result = await handler(event.payload or {})
+            except Exception as exc:
+                async with self._sf() as session:
+                    ev = await session.get(GenerationEvent, event.id)
+                    await self._queue.fail(session, ev, str(exc)[:500])
+                    await self._add_llm_usage(session, event.run_id, usage)
+                    await session.commit()
+                return
 
         async with self._sf() as session:
             ev = await session.get(GenerationEvent, event.id)
             await self._queue.complete(session, ev, result)
+            await self._add_llm_usage(session, event.run_id, usage)
             await self._dispatch_next(session, ev)
             await session.commit()
+
+    @staticmethod
+    async def _add_llm_usage(
+        session: AsyncSession, run_id: str, usage: LLMUsage,
+    ) -> None:
+        if usage.input_tokens <= 0 and usage.output_tokens <= 0:
+            return
+        # Savepoint + swallow: token accounting must never block the event's
+        # state transition, which is already flushed in this transaction.
+        try:
+            async with session.begin_nested():
+                await session.execute(
+                    update(PlaylistRun)
+                    .where(PlaylistRun.id == run_id)
+                    .values(
+                        llm_input_tokens=PlaylistRun.llm_input_tokens + usage.input_tokens,
+                        llm_output_tokens=PlaylistRun.llm_output_tokens + usage.output_tokens,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+        except Exception:
+            logger.warning(
+                "[%s] could not record LLM usage (lost %d input / %d output tokens)",
+                run_id[:8], usage.input_tokens, usage.output_tokens,
+                exc_info=True,
+            )
 
     async def _dispatch_next(
         self, session: AsyncSession, completed: GenerationEvent,

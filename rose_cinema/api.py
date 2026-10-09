@@ -460,6 +460,8 @@ async def get_run(run_id: str, session: AsyncSession = Depends(get_session)):
         entries=entries,
         error_message=run.error_message,
         generation_secs=run.generation_secs,
+        llm_input_tokens=run.llm_input_tokens,
+        llm_output_tokens=run.llm_output_tokens,
         progress=progress,
     )
 
@@ -487,6 +489,8 @@ async def list_station_runs(
             ]) if r.playlist_json else 0,
             error_message=r.error_message,
             generation_secs=r.generation_secs,
+            llm_input_tokens=r.llm_input_tokens,
+            llm_output_tokens=r.llm_output_tokens,
         )
         for r in runs
     ]

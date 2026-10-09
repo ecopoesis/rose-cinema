@@ -6,6 +6,7 @@ import httpx
 from openai import AsyncOpenAI
 
 from rose_cinema.providers import LLMMessage, LLMProvider
+from rose_cinema.providers.usage import record_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +15,9 @@ class OpenAICompatibleLLM(LLMProvider):
     """
     Works with any OpenAI-compatible endpoint:
       - Ollama:    base_url=http://ollama:11434/v1, api_key=not-needed
-      - Anthropic: base_url=https://api.anthropic.com/v1/, api_key=sk-ant-...
       - OpenAI:    base_url=https://api.openai.com/v1, api_key=sk-...
+
+    Anthropic has its own native provider (llm_anthropic.AnthropicLLM).
 
     Ollama endpoints are auto-detected and use the native /api/chat with
     thinking disabled, avoiding reasoning-token overhead on the OpenAI shim.
@@ -77,6 +79,10 @@ class OpenAICompatibleLLM(LLMProvider):
                 )
                 resp.raise_for_status()
                 data = resp.json()
+                record_llm_usage(
+                    data.get("prompt_eval_count") or 0,
+                    data.get("eval_count") or 0,
+                )
                 return data.get("message", {}).get("content", "") or ""
         except Exception:
             logger.exception("Ollama completion failed")
@@ -96,6 +102,11 @@ class OpenAICompatibleLLM(LLMProvider):
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+            if response.usage is not None:
+                record_llm_usage(
+                    response.usage.prompt_tokens or 0,
+                    response.usage.completion_tokens or 0,
+                )
             return response.choices[0].message.content or ""
         except Exception:
             logger.exception("LLM completion failed")

@@ -7,3 +7,4 @@ web/dist/
 .env
 .git/
 .pytest_cache/
+.rose-cinema-anthropic

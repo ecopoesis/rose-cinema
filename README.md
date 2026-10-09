@@ -1,6 +1,6 @@
 # Rose Cinema 🎙️📻
 
-AI-powered radio station generator. Builds a candidate pool of real Apple Music tracks from a seed (artist, song, or theme — via MusicKit's `similar-artists` graph or genre charts), has an LLM curate the pool into an arc, generates DJ patter in a chosen personality, synthesizes voice with Piper, and either:
+AI-powered radio station generator. Builds a candidate pool of real Apple Music tracks from a seed (artist, song, or theme — via MusicKit's `similar-artists` graph or genre charts), has an LLM (Claude Sonnet 5.5 via the Anthropic API by default; Ollama or any OpenAI-compatible endpoint as an alternative) curate the pool into an arc, generates DJ patter in a chosen personality, synthesizes voice with Piper, and either:
 
 - **Saves** the result as a playlist inside [Music Assistant](https://music-assistant.io/) — visible in MA's UI, playable any time to any AirPlay/Sonos/Chromecast/webplayer endpoint, or
 - **Plays** the result live by pushing the queue to a chosen MA player.
@@ -25,6 +25,9 @@ AI-powered radio station generator. Builds a candidate pool of real Apple Music 
             │   synthesize_* ──► PiperTTS ─► data/dj_audio/*.mp3 │
             │             ▼                                       │
             │   finalize_playlist ──► ma_ingest/create/add_tracks │
+            │                                                     │
+            │   LLM = Anthropic API (default) or Ollama/OpenAI-   │
+            │   compatible; token counts land on playlist_runs    │
             │                              ▼                      │
             │                        Music Assistant              │
             └─────────────────────────────────────────────────────┘
@@ -47,7 +50,9 @@ What's working:
 - ✅ Music Assistant integration — save full playlist (DJs + Apple Music) as an MA library playlist; or push directly to a player queue
 - ✅ FastAPI + PostgreSQL + Alembic; web UI at `/` (list stations, "Generate" button with live progress)
 - ✅ Queue-based generation with PG LISTEN/NOTIFY — crash-recoverable, retry up to 3×, chain dispatch
-- ✅ Three Docker stacks for production deploy: `music-assistant` (playback), `ollama` (LLM + Open WebUI for browser chat), `rose-cinema` (this app + PostgreSQL). Each is its own Portainer stack from this repo.
+- ✅ LLM via the native Anthropic API (`claude-sonnet-5-5`) by default, or a local Ollama / any OpenAI-compatible endpoint
+- ✅ Per-run LLM token accounting: `GET /api/runs/{id}` and `GET /api/stations/{id}/runs` return `llm_input_tokens` / `llm_output_tokens` (covers completed and failed step attempts, retries included; can undercount if the worker is killed mid-step, and `test-playlist` previews are not counted)
+- ✅ Docker stacks for production deploy: `music-assistant` (playback), `rose-cinema` (this app + PostgreSQL), and optionally `ollama` (local LLM + Open WebUI for browser chat). Each is its own Portainer stack from this repo.
 
 In flight (see GitHub issues):
 
@@ -61,7 +66,20 @@ Full backlog: <https://github.com/ecopoesis/rose-cinema/issues>
 
 ## Architecture decisions
 
-- **LLM**: any OpenAI-compatible chat completions endpoint. Ollama by default (local, free). Anthropic / OpenAI / OpenRouter etc. work by swapping `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`.
+- **LLM**: two provider paths, chosen by `LLM_PROVIDER`.
+  - `anthropic` (default) — native Messages API through the official `anthropic` SDK, model `claude-sonnet-5-5`. Adaptive thinking is always on; depth is set with `LLM_EFFORT` (default `low`). Sampling parameters are not sent (the model rejects them), and requests opt into Anthropic's server-side refusal fallback. Needs an API key: `ANTHROPIC_API_KEY`, or a key file at `ANTHROPIC_API_KEY_FILE`.
+  - anything else (e.g. `ollama`) — any OpenAI-compatible chat completions endpoint via `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`. Ollama (local, free) is the tested alternative; OpenAI / OpenRouter work the same way.
+
+  | Env var | Default | Effect |
+  |---|---|---|
+  | `LLM_PROVIDER` | `anthropic` | `anthropic` = native Anthropic API; any other value = OpenAI-compatible endpoint |
+  | `LLM_MODEL` | `claude-sonnet-5-5` | model ID for the chosen provider |
+  | `LLM_EFFORT` | `low` | Anthropic only: `low` / `medium` / `high` / `xhigh` / `max` |
+  | `ANTHROPIC_API_KEY` | *(empty)* | Anthropic key; wins over the key file |
+  | `ANTHROPIC_API_KEY_FILE` | *(empty; `/run/secrets/anthropic_api_key` in Docker)* | path to a file holding the key, used when `ANTHROPIC_API_KEY` is empty. A missing path, a directory, or an empty file counts as "no key" |
+  | `ANTHROPIC_API_KEY_HOST_FILE` | `/home/miker/.rose-cinema-anthropic` | docker-compose only: host file bind-mounted read-only at `/run/secrets/anthropic_api_key` |
+  | `LLM_BASE_URL` | `http://ollama:11434/v1` | OpenAI-compatible path only |
+  | `LLM_API_KEY` | `not-needed` | OpenAI-compatible path only |
 - **Apple Music catalog**: MusicKit REST API. Developer JWT (ES256, 90-day lifetime, lazy-cached) signed with a `.p8` key. Used **only for read** — track verification + canonical metadata.
 - **TTS**: Piper, runs in-process via the `piper` CLI. Voices live under `data/piper_models/`. (ElevenLabs / OpenAI TTS providers exist in code but the install path bakes Piper into the Docker image.)
 - **Playback**: Music Assistant runs as a separate container/stack on the same machine (or LAN). `radiobot` talks to it over the WebSocket API; MA owns all the actual audio routing.
@@ -86,11 +104,18 @@ Full backlog: <https://github.com/ecopoesis/rose-cinema/issues>
 
 ## Quick start — production (Linux server + Portainer)
 
+> **Upgrading an existing deployment:** the default provider is now `anthropic`. If your stack sets `LLM_MODEL` to an Ollama model (e.g. `qwen3:…`), either change it to a Claude model / remove it, or set `LLM_PROVIDER=ollama` — otherwise generation fails with a provider/model mismatch error.
+
 This is what's deployed to `server03` today.
 
 1. **Add the Music Assistant stack** in Portainer pointing at `deploy/music-assistant/docker-compose.yml`. Bring it up, open `http://<host>:8095/`, create an admin user, add the **Apple Music** provider (signs in with your Apple ID), add players (Sonos / AirPlay / webplayer / etc.).
 2. **Generate an MA API token** in Settings → General → Security. You'll need it next.
-3. **Add the Ollama stack** in Portainer pointing at `deploy/ollama/docker-compose.yml`. Brings up `ollama` (host networking, port 11434) and `open-webui` for browser-side chat at `http://<host>:3000/`.
+3. **Provide an Anthropic API key.** Either put the key (just the key, one line) in a file on the host — the stack bind-mounts `/home/miker/.rose-cinema-anthropic` read-only by default; set `ANTHROPIC_API_KEY_HOST_FILE` to use another path — or set `ANTHROPIC_API_KEY` as a stack env var (the env var wins). Create the file *before* starting the stack: Docker creates an empty directory at a missing bind-mount source, which rose-cinema treats as "no key". If that already happened (the file was missing at first start), `rmdir` the directory on the host, create the file, and restart the stack. The file must be a single line containing only the key.
+
+   ```bash
+   install -m 600 /dev/null ~/.rose-cinema-anthropic && $EDITOR ~/.rose-cinema-anthropic
+   ```
+
 4. **Add the rose-cinema stack** in Portainer pointing at `docker-compose.yml` (repo root). This brings up PostgreSQL 17 + the radiobot app. Set these env vars:
 
    ```
@@ -104,9 +129,22 @@ This is what's deployed to `server03` today.
    MA_DEFAULT_PLAYER_ID=<player_id from MA's API or UI>
    PUBLIC_BASE_URL=http://<your-server>:8765   # how MA fetches DJ MP3s back from radiobot
    CHATTERBOX_URL=http://<server-ip>:8004      # optional: Chatterbox TTS server
+   ANTHROPIC_API_KEY_HOST_FILE=/path/to/keyfile # optional: host path of the Anthropic key file
+   ANTHROPIC_API_KEY=sk-ant-...                 # optional: alternative to the key file
    ```
 
-5. Pull the LLM model into the Ollama stack (one-time, ~18 GB):
+5. Open `http://<host>:8765/`, create a DJ and a station via the web UI, and click **Generate**. The button shows live progress; the playlist appears in Music Assistant once complete.
+
+### Alternative: local LLM with Ollama
+
+To run without the Anthropic API, add the Ollama stack in Portainer pointing at `deploy/ollama/docker-compose.yml` (brings up `ollama` on host networking, port 11434, and `open-webui` at `http://<host>:3000/`), set these on the rose-cinema stack:
+
+   ```
+   LLM_PROVIDER=ollama
+   LLM_MODEL=qwen3:30b-a3b-instruct-2507-q4_K_M
+   ```
+
+and pull the model (one-time, ~18 GB):
 
    ```bash
    docker exec ollama ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M
@@ -114,15 +152,13 @@ This is what's deployed to `server03` today.
 
    This is the Qwen3 30B MoE — 30B total parameters but only 3B active per token, so per-token CPU inference is roughly an order of magnitude faster than dense models of comparable quality. The newer `qwen3.6:35b-a3b` exists but its `q4_K_M` quant needs ~25 GiB to load — too big for a typical 16-32 GiB server unless you have GPU offload.
 
-6. Open `http://<host>:8765/`, create a DJ and a station via the web UI, and click **Generate**. The button shows live progress; the playlist appears in Music Assistant once complete.
-
 ## Quick start — local dev (macOS)
 
 Music Assistant **does not run cleanly in Docker on macOS** (mDNS doesn't traverse Docker Desktop's NAT). Either point at an MA instance running on a real Linux box, or skip MA locally and just exercise generation.
 
 ```bash
 # Python toolchain
-brew install pyenv ollama ffmpeg postgresql@17
+brew install pyenv ffmpeg postgresql@17
 pyenv install 3.12.1
 pyenv local 3.12.1
 python -m venv .venv
@@ -132,16 +168,15 @@ python -m venv .venv
 brew services start postgresql@17
 createdb rose_cinema
 
-# LLM (native Ollama gets Metal GPU acceleration on Apple Silicon)
-brew services start ollama
-ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M
+# LLM: put your Anthropic API key (one line) in a git-ignored file at the repo root
+$EDITOR .rose-cinema-anthropic
 
 # Piper voice (default fallback; Bryce Beattie voices download separately)
 mkdir -p data/piper_models data/dj_audio data/exports
 cd data/piper_models && python -m piper.download_voices en_US-lessac-medium && cd -
 
 # Config
-cp .env.example .env   # then edit (see below)
+$EDITOR .env           # create it from the sample below
 .venv/bin/alembic upgrade head
 
 # Run
@@ -153,9 +188,9 @@ Sample `.env` for local dev:
 ```env
 DATABASE_URL=postgresql+asyncpg://localhost/rose_cinema
 
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_MODEL=qwen3:30b-a3b-instruct-2507-q4_K_M
-LLM_API_KEY=ollama
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-sonnet-5-5
+ANTHROPIC_API_KEY_FILE=.rose-cinema-anthropic   # or ANTHROPIC_API_KEY=sk-ant-...
 
 TTS_PROVIDER=piper
 
@@ -168,6 +203,15 @@ MA_URL=http://<linux-box>.local:8095
 MA_TOKEN=<jwt>
 MA_DEFAULT_PLAYER_ID=<player_id>
 PUBLIC_BASE_URL=http://<your-mac-ip>:8765
+```
+
+To use a local Ollama instead (native Ollama gets Metal GPU acceleration on Apple Silicon), `brew install ollama && brew services start ollama && ollama pull qwen3:30b-a3b-instruct-2507-q4_K_M`, then replace the three LLM lines with:
+
+```env
+LLM_PROVIDER=ollama
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=qwen3:30b-a3b-instruct-2507-q4_K_M
+LLM_API_KEY=ollama
 ```
 
 ## Tests

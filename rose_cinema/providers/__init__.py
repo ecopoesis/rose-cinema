@@ -11,6 +11,10 @@ class LLMMessage:
     content: str
 
 
+class LLMRefusalError(RuntimeError):
+    """The model declined the request; retrying the same prompt will not help."""
+
+
 class LLMProvider(ABC):
     """OpenAI-compatible chat completion provider."""
 

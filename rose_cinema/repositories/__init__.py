@@ -95,6 +95,8 @@ class PlaylistRunRecord:
     episode: int | None = None
     ma_playlist_id: str | None = None
     generation_secs: float | None = None
+    llm_input_tokens: int = 0
+    llm_output_tokens: int = 0
     created_at: str | None = None
 
 

@@ -182,6 +182,8 @@ class PlaylistRunResponse(BaseModel):
     entries: list[PlaylistEntryResponse] = []
     error_message: str | None = None
     generation_secs: float | None = None
+    llm_input_tokens: int = 0
+    llm_output_tokens: int = 0
     progress: ProgressResponse | None = None
 
 
@@ -206,6 +208,8 @@ class PlaylistRunSummary(BaseModel):
     track_count: int = 0
     error_message: str | None = None
     generation_secs: float | None = None
+    llm_input_tokens: int = 0
+    llm_output_tokens: int = 0
 
 
 # ── Music Assistant playback ──────────────────────────────────────────
