@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # squeezelite: Debian's package (2.0.0-1517) is too old for MA 2.8+'s
 # SlimProto protocol (unhandled "vers" command). Fetch a recent static build.
-RUN curl -sL 'https://sourceforge.net/projects/lmsclients/files/squeezelite/linux/squeezelite-2.0.0.1541-x86_64.tar.gz/download' \
+RUN curl -sL 'https://sourceforge.net/projects/lmsclients/files/squeezelite/linux/squeezelite-2.0.0.1610-x86_64.tar.gz/download' \
     | tar xz -C /usr/local/bin squeezelite && chmod +x /usr/local/bin/squeezelite
 
 COPY requirements.txt .
