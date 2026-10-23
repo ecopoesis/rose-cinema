@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from rose_cinema.config import settings
 from rose_cinema.repositories import CachedTrackRecord
 from rose_cinema.repositories.sql import SqlCachedTrackRepository
+from rose_cinema.services.apple_auth import AppleMusicAuthError
 from rose_cinema.services.apple_music_stream import AppleMusicStreamer
 from rose_cinema.services.catalog import MusicCatalog
 
@@ -273,6 +274,9 @@ class TrackCache:
                     i + 1, len(songs),
                     song.get("artist", "?"), song.get("title", "?"),
                 )
+            except AppleMusicAuthError as exc:
+                logger.warning("Stopping track downloads: %s", exc)
+                break
             except Exception:
                 logger.exception("Failed to download track %s", aid)
                 continue

@@ -45,3 +45,8 @@ export async function uploadAlbumArt(stationId, file) {
 
 export const deleteAlbumArt = (stationId) =>
   api(`/stations/${stationId}/album-art`, { method: 'DELETE' });
+
+export const fetchAppleMusicAuth = () => api('/apple-music/auth');
+export const fetchAppleMusicDeveloperToken = () => api('/apple-music/developer-token');
+export const saveAppleMusicAuth = (userToken) =>
+  api('/apple-music/auth', { method: 'POST', body: { user_token: userToken } });

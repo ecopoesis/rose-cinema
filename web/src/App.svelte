@@ -4,6 +4,7 @@
   import StationForm from './StationForm.svelte';
   import DJForm from './DJForm.svelte';
   import ExclusionsForm from './ExclusionsForm.svelte';
+  import AppleMusicAuth from './AppleMusicAuth.svelte';
   import * as api from './api.js';
 
   let activeTab = $state('stations');
@@ -275,7 +276,10 @@
   </div>
 {:else}
 
-<h1>Rose Cinema</h1>
+<header class="page-header">
+  <h1>Rose Cinema</h1>
+  <AppleMusicAuth ontoast={showToast} />
+</header>
 
 <nav class="tabs">
   <button class="tab" class:active={activeTab === 'stations'}
@@ -413,7 +417,9 @@
 {/if}
 
 <style>
-  h1 { font-weight: 500; letter-spacing: -0.02em; margin: 0 0 1rem; }
+  .page-header { display: flex; justify-content: space-between; align-items: flex-start;
+                 gap: 1rem; margin-bottom: 1rem; }
+  h1 { font-weight: 500; letter-spacing: -0.02em; margin: 0; }
 
   .tabs { display: flex; border-bottom: 1px solid #333; margin-bottom: 1.5rem; }
   .tab { background: none; border: none; color: #888; padding: 0.65rem 1.25rem;

@@ -36,8 +36,19 @@ from rose_cinema.services.scheduler import CronScheduler
 from rose_cinema.services.stream_manager import StreamManager
 from rose_cinema.services.ezstream_manager import EzstreamManager
 from rose_cinema.services.track_cache import TrackCache
+from rose_cinema.services.apple_auth import (
+    auth_status,
+    has_apple_music_auth,
+    load_apple_auth,
+    save_apple_auth,
+    verify_user_token,
+)
 from rose_cinema.services.apple_music_stream import AppleMusicStreamer
-from rose_cinema.services.musickit import get_music_catalog
+from rose_cinema.services.musickit import (
+    _get_token as get_musickit_token,
+    get_music_catalog,
+    mint_long_lived_token,
+)
 from rose_cinema.schemas import (
     DJCreate, DJUpdate, DJResponse,
     StationCreate, StationUpdate, StationResponse,
@@ -47,6 +58,7 @@ from rose_cinema.schemas import (
     DJExport, StationExport, ExportData, ImportResult,
     TestSongResponse, TestPlaylistResponse,
     ExclusionSettings,
+    AppleMusicAuthStatus, AppleMusicAuthUpdate, AppleMusicDeveloperToken,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -60,7 +72,7 @@ _ezstream_mgr: EzstreamManager | None = None
 
 async def _enqueue_track_downloads() -> None:
     """Re-cache tracks for all ready/saved runs that lack .m4a files."""
-    if not settings.apple_music_user_token:
+    if not await has_apple_music_auth():
         return
     try:
         from sqlalchemy import select as sa_select
@@ -785,6 +797,53 @@ async def update_exclusion_settings(
     return ExclusionSettings(excluded_artists=cleaned)
 
 
+@app.get("/api/apple-music/auth", response_model=AppleMusicAuthStatus)
+async def get_apple_music_auth(session: AsyncSession = Depends(get_session)):
+    return AppleMusicAuthStatus(**auth_status(await load_apple_auth(session)))
+
+
+@app.get("/api/apple-music/developer-token", response_model=AppleMusicDeveloperToken)
+async def get_apple_music_developer_token():
+    """Developer token for MusicKit JS in the browser to run the Apple sign-in."""
+    try:
+        return AppleMusicDeveloperToken(developer_token=get_musickit_token())
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
+
+
+@app.post("/api/apple-music/auth", response_model=AppleMusicAuthStatus)
+async def set_apple_music_auth(
+    body: AppleMusicAuthUpdate, session: AsyncSession = Depends(get_session)
+):
+    user_token = body.user_token.strip()
+    try:
+        valid = await verify_user_token(user_token, get_musickit_token())
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Could not verify the token with Apple Music: {exc}")
+    if not valid:
+        raise HTTPException(400, "Apple Music rejected the user token")
+
+    auth = await save_apple_auth(session, user_token)
+    status = AppleMusicAuthStatus(**auth_status(auth))
+
+    ma = get_music_assistant_client()
+    if ma:
+        try:
+            updated = await asyncio.wait_for(
+                ma.set_apple_music_tokens(mint_long_lived_token(), user_token), timeout=30,
+            )
+            status.ma_synced = updated > 0
+            if not updated:
+                status.ma_error = "No Apple Music provider configured in Music Assistant"
+        except Exception as exc:
+            logger.exception("Pushing Apple Music tokens to Music Assistant failed")
+            status.ma_synced = False
+            status.ma_error = str(exc) or type(exc).__name__
+    return status
+
+
 @app.get("/api/export", response_model=ExportData)
 async def export_all(session: AsyncSession = Depends(get_session)):
     dj_repo = SqlDJRepository(session)
@@ -1051,7 +1110,7 @@ async def listen_native_stream(
     ))
 
     cached_paths: dict[str, Path] = {}
-    if settings.apple_music_user_token:
+    if await has_apple_music_auth():
         streamer = AppleMusicStreamer()
         cache = TrackCache(streamer, async_session, catalog=get_music_catalog())
         remaining = entries[entry_index:]

@@ -48,6 +48,7 @@ What's working:
 - ✅ **Hybrid track selection**: SeedPoolBuilder produces a catalog-grounded pool (artist's top-songs + similar-artists' top-songs, or theme→genre charts); LLM curates indices from the pool. Per-artist cap (2) plus deterministic top-up keeps playlists at target length even when the LLM piles up favorites. Hallucination-impossible by construction.
 - ✅ DJ scripts scaled by `babble_rate`, voiced via Piper (incl. Bryce Beattie's narrator set: `cori-high`, `kristin`, `bryce`, `norman`, `mv2`, `jenny`)
 - ✅ Music Assistant integration — save full playlist (DJs + Apple Music) as an MA library playlist; or push directly to a player queue
+- ✅ Apple Music sign-in from the web UI: **Reauth Apple Music** (top right) runs Apple's MusicKit sign-in in the browser, stores the music user token in the database (`app_settings`), and copies it plus a fresh 6-month MusicKit app token into Music Assistant's Apple Music provider. Takes effect immediately, no restart. A red notice under the button shows when the authorization expires within `APPLE_MUSIC_EXPIRY_WARN_DAYS` (default 7), has expired, or Apple has rejected it. API: `GET /api/apple-music/auth` (status), `GET /api/apple-music/developer-token` (for MusicKit JS), `POST /api/apple-music/auth` `{"user_token": ...}` (verify with Apple, store, push to MA)
 - ✅ FastAPI + PostgreSQL + Alembic; web UI at `/` (list stations, "Generate" button with live progress)
 - ✅ Queue-based generation with PG LISTEN/NOTIFY — crash-recoverable, retry up to 3×, chain dispatch
 - ✅ LLM via the native Anthropic API (`claude-sonnet-5-5`) by default, or a local Ollama / any OpenAI-compatible endpoint
@@ -132,9 +133,11 @@ This is what's deployed to `server03` today.
    CHATTERBOX_URL=http://<server-ip>:8004      # optional: Chatterbox TTS server
    ANTHROPIC_API_KEY_HOST_FILE=/path/to/keyfile # optional: host path of the Anthropic key file
    ANTHROPIC_API_KEY=sk-ant-...                 # optional: alternative to the key file
+   APPLE_MUSIC_EXPIRY_WARN_DAYS=7               # optional: days before expiry to show the reauth notice
    ```
 
-5. Open `http://<host>:8765/`, create a DJ and a station via the web UI, and click **Generate**. The button shows live progress; the playlist appears in Music Assistant once complete.
+5. Open `http://<host>:8765/` and click **Reauth Apple Music** (top right) to sign in with your Apple ID. This authorizes rose-cinema's track downloads and also sets the tokens on Music Assistant's Apple Music provider. Apple's authorization lasts about six months; the button shows a red notice when it's close to expiring.
+6. Create a DJ and a station via the web UI, and click **Generate**. The button shows live progress; the playlist appears in Music Assistant once complete.
 
 ### Alternative: local LLM with Ollama
 

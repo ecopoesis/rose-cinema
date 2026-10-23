@@ -64,6 +64,7 @@ AI-powered radio station generator. LLM proposes a tracklist seeded by a station
 - `POST /api/runs/{id}/play` — push the playlist as a live queue to a Music Assistant player
 - `POST /api/runs/{id}/save-to-ma` — enqueues MA chain (returns 202); auto-triggered after finalize if MA is configured
 - `GET`/`PUT /api/settings/exclusions` — global excluded-artists list (app_settings table); merged with per-station `excluded_artists` at generation time
+- Apple Music auth (`services/apple_auth.py`) — the music user token lives in `app_settings` key `apple_music_auth` (not env), read per request by `AppleMusicStreamer`, so a re-auth needs no restart. Expiry = issue + 180 days (Apple tokens are opaque); a webPlayback `failureType` 2034 marks it invalid early. `GET /api/apple-music/auth` (status + `warn` within `APPLE_MUSIC_EXPIRY_WARN_DAYS`), `GET /api/apple-music/developer-token`, `POST /api/apple-music/auth` (verify via `/v1/me/storefront`, store, push the user token + a 6-month app token into MA's Apple Music provider via `MusicAssistantClient.set_apple_music_tokens`). Web UI: "Reauth Apple Music" in the header
 - Queue worker with PG LISTEN/NOTIFY — 10 step types, retry up to 3x, crash recovery on startup
 - Web UI mounted at `/` — list stations, "Generate" button (polls for progress)
 - Alembic migrations 001–019

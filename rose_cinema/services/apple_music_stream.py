@@ -13,11 +13,20 @@ from pywidevine import PSSH, Cdm, Device, DeviceTypes
 from pywidevine.license_protocol_pb2 import WidevinePsshData
 
 from rose_cinema.config import settings
+from rose_cinema.services.apple_auth import (
+    AppleMusicAuthError,
+    get_apple_music_user_token,
+    mark_apple_auth_invalid,
+)
 from rose_cinema.services.musickit import _get_token as get_musickit_token
 
 logger = logging.getLogger(__name__)
 
 PLAYBACK_URL = "https://play.music.apple.com/WebObjects/MZPlay.woa/wa/webPlayback"
+# webPlayback's failureType for an expired/revoked music user token
+# (customerMessage "MZCommerce.ExpiredPasswordTokenNoDialog_message").
+_EXPIRED_TOKEN_FAILURE = "2034"
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     " (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
@@ -32,8 +41,8 @@ class TrackStreamInfo:
 
 
 class AppleMusicStreamer:
-    def __init__(self) -> None:
-        self._user_token = settings.apple_music_user_token
+    def __init__(self, token_provider=get_apple_music_user_token) -> None:
+        self._token_provider = token_provider
         self._device: Device | None = None
         self._key_cache: dict[str, str] = {}
 
@@ -54,11 +63,11 @@ class AppleMusicStreamer:
         )
         return self._device
 
-    def _get_headers(self) -> dict[str, str]:
+    def _get_headers(self, user_token: str) -> dict[str, str]:
         app_token = get_musickit_token()
         return {
             "authorization": f"Bearer {app_token}",
-            "media-user-token": self._user_token,
+            "media-user-token": user_token,
             "connection": "keep-alive",
             "accept": "application/json",
             "origin": "https://music.apple.com",
@@ -69,7 +78,10 @@ class AppleMusicStreamer:
         }
 
     async def get_stream_info(self, apple_music_id: str) -> TrackStreamInfo:
-        headers = self._get_headers()
+        user_token = await self._token_provider()
+        if not user_token:
+            raise AppleMusicAuthError("No Apple Music user token; authorize in the web UI")
+        headers = self._get_headers(user_token)
         data = {"salableAdamId": apple_music_id}
 
         async with httpx.AsyncClient(timeout=30) as client:
@@ -77,6 +89,9 @@ class AppleMusicStreamer:
             resp.raise_for_status()
             content = resp.json()
 
+        if content.get("failureType") == _EXPIRED_TOKEN_FAILURE:
+            await mark_apple_auth_invalid(user_token)
+            raise AppleMusicAuthError(f"Apple Music user token rejected: {content.get('customerMessage')}")
         if content.get("failureType"):
             raise RuntimeError(f"Playback metadata failed: {content.get('failureMessage')}")
 
@@ -95,7 +110,9 @@ class AppleMusicStreamer:
             return TrackStreamInfo(stream_url=stream_url, decryption_key=None, is_encrypted=False)
 
         key_id = base64.b64decode(key_uri.split(",")[1])
-        dec_key = await self._get_decryption_key(license_url, key_id, key_uri, apple_music_id)
+        dec_key = await self._get_decryption_key(
+            license_url, key_id, key_uri, apple_music_id, user_token,
+        )
         return TrackStreamInfo(stream_url=stream_url, decryption_key=dec_key, is_encrypted=True)
 
     async def _parse_m3u8(self, playlist_url: str) -> tuple[str, str | None]:
@@ -119,7 +136,7 @@ class AppleMusicStreamer:
         return track_url, key_uri
 
     async def _get_decryption_key(
-        self, license_url: str, key_id: bytes, uri: str, item_id: str
+        self, license_url: str, key_id: bytes, uri: str, item_id: str, user_token: str,
     ) -> str:
         if item_id in self._key_cache:
             return self._key_cache[item_id]
@@ -149,7 +166,7 @@ class AppleMusicStreamer:
             resp = await client.post(
                 license_url,
                 content=json.dumps(license_data),
-                headers=self._get_headers(),
+                headers=self._get_headers(user_token),
             )
             resp.raise_for_status()
             license_resp = resp.json()

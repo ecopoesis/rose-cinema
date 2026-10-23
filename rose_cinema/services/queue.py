@@ -516,13 +516,13 @@ class QueueWorker:
                 )
 
     async def _after_finalize(self, session: AsyncSession, run_id: str) -> None:
-        from rose_cinema.config import settings as cfg
+        from rose_cinema.services.apple_auth import has_apple_music_auth
 
         run = await session.get(PlaylistRun, run_id)
         if not run:
             return
 
-        if cfg.apple_music_user_token:
+        if await has_apple_music_auth():
             await self._queue.enqueue(
                 session, run_id, "download_tracks", 0,
                 {"run_id": run_id},

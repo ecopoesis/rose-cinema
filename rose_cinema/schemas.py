@@ -120,6 +120,24 @@ class ExclusionSettings(BaseModel):
     excluded_artists: list[str] = Field(default_factory=list)
 
 
+class AppleMusicAuthStatus(BaseModel):
+    authorized: bool
+    expires_at: str | None = None
+    expired: bool = False
+    warn: bool = False
+    warn_days: int = 7
+    ma_synced: bool | None = None   # set only by POST; None = MA not configured
+    ma_error: str | None = None
+
+
+class AppleMusicAuthUpdate(BaseModel):
+    user_token: str = Field(min_length=1)
+
+
+class AppleMusicDeveloperToken(BaseModel):
+    developer_token: str
+
+
 # ── Test Playlist (track-only preview) ────────────────────────────────
 
 

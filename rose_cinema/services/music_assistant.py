@@ -12,6 +12,8 @@ from rose_cinema.config import settings
 
 logger = logging.getLogger(__name__)
 
+_MA_SECURE_MASK = "this_value_is_encrypted"
+
 
 @dataclass
 class MAPlayer:
@@ -227,6 +229,43 @@ class MusicAssistantClient:
             "playlist_name": pl.get("name"),
             "queued_uris": len(final_uris),
         }
+
+    async def set_apple_music_tokens(self, app_token: str, user_token: str) -> int:
+        """Write the tokens into every Apple Music provider instance.
+
+        The user token goes in the manual field: MA's own sign-in flow only
+        runs when its bundled app token is valid. Secure values come back
+        masked from config/providers/get, so masked ones are left out of the
+        save rather than written back. Returns the number of instances updated.
+        """
+        updated = 0
+        async with self._session() as (ws, mid):
+            r = await _call(ws, mid, "config/providers")
+            if _error(r):
+                raise RuntimeError(f"MA config/providers failed: {_error(r)}")
+            for prov in r.get("result") or []:
+                if prov.get("domain") != "apple_music":
+                    continue
+                iid = prov["instance_id"]
+                r = await _call(ws, mid, "config/providers/get", instance_id=iid)
+                if _error(r):
+                    raise RuntimeError(f"MA config/providers/get failed: {_error(r)}")
+                values = {
+                    k: val
+                    for k, v in ((r.get("result") or {}).get("values") or {}).items()
+                    if (val := v.get("value") if isinstance(v, dict) else v)
+                    != _MA_SECURE_MASK
+                }
+                values["music_app_token"] = app_token
+                values["music_user_manual_token"] = user_token
+                r = await _call(
+                    ws, mid, "config/providers/save",
+                    provider_domain="apple_music", values=values, instance_id=iid,
+                )
+                if _error(r):
+                    raise RuntimeError(f"MA config/providers/save failed: {_error(r)}")
+                updated += 1
+        return updated
 
     @asynccontextmanager
     async def _session(self):

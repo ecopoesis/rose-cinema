@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 _API_BASE = "https://api.music.apple.com/v1"
 _TOKEN_LIFETIME_SECS = 90 * 86_400        # 90 days; Apple max is 6 months
 _TOKEN_REFRESH_BEFORE = 1 * 86_400        # refresh if < 24h remaining
+MAX_TOKEN_LIFETIME_SECS = 15_777_000      # Apple's 6-month cap
 
 
 class MusicKitTokenSigner:
@@ -36,15 +37,18 @@ class MusicKitTokenSigner:
         now = int(time.time())
         if self._token and (self._exp - now) > _TOKEN_REFRESH_BEFORE:
             return self._token
-        exp = now + _TOKEN_LIFETIME_SECS
+        self._token, self._exp = self.mint(_TOKEN_LIFETIME_SECS)
+        return self._token
+
+    def mint(self, lifetime_secs: int) -> tuple[str, int]:
+        """Mint a fresh, uncached token; returns (jwt, exp)."""
+        now = int(time.time())
+        exp = now + lifetime_secs
         payload = {"iss": self._team_id, "iat": now, "exp": exp}
         headers = {"alg": "ES256", "kid": self._key_id}
-        self._token = jwt.encode(
-            payload, self._private_key, algorithm="ES256", headers=headers
-        )
-        self._exp = exp
+        token = jwt.encode(payload, self._private_key, algorithm="ES256", headers=headers)
         logger.info("Minted MusicKit JWT (kid=%s, exp=%d)", self._key_id, exp)
-        return self._token
+        return token, exp
 
 
 def _track_from_payload(item: dict) -> CatalogTrack:
@@ -196,6 +200,16 @@ _token_signer: MusicKitTokenSigner | None = None
 
 def _get_token() -> str:
     """Return a cached MusicKit developer JWT, creating the signer on first call."""
+    return _get_signer().token()
+
+
+def mint_long_lived_token() -> str:
+    """A max-lifetime developer token for handing to Music Assistant."""
+    token, _ = _get_signer().mint(MAX_TOKEN_LIFETIME_SECS)
+    return token
+
+
+def _get_signer() -> MusicKitTokenSigner:
     global _token_signer
     if _token_signer is None:
         cfg = settings
@@ -212,7 +226,7 @@ def _get_token() -> str:
             key_id=cfg.musickit_key_id,
             private_key=private_key,
         )
-    return _token_signer.token()
+    return _token_signer
 
 
 def _resolve_inline_key(raw: str) -> str:
