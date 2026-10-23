@@ -72,8 +72,6 @@
       app: { name: 'Rose Cinema', build: '1.0.0' },
     });
     music = window.MusicKit.getInstance();
-    // MusicKit caches the last token per origin; drop it so Apple issues a fresh one.
-    if (music.isAuthorized) await music.unauthorize();
   }
 
   async function reauth() {
@@ -82,8 +80,18 @@
       if (!music) await musicReady;
       const userToken = await music.authorize();
       if (!userToken) throw new Error('Apple sign-in was cancelled');
-      status = await api.saveAppleMusicAuth(userToken);
-      music.unauthorize().catch(() => {});
+      try {
+        status = await api.saveAppleMusicAuth(userToken);
+      } catch (e) {
+        // authorize() hands back MusicKit's cached token without a popup; if Apple
+        // has already rejected that one, clear it so the next click signs in fresh.
+        // unauthorize() revokes the token at Apple, so never call it on a good one.
+        if (String(e.message).includes('rejected the user token')) {
+          await music.unauthorize().catch(() => {});
+          throw new Error('the saved Apple sign-in had expired and was cleared; click Reauth again');
+        }
+        throw e;
+      }
       if (status.ma_synced === false) {
         ontoast?.(`Apple Music authorized, but Music Assistant wasn't updated: ${status.ma_error}`, true);
       } else {
