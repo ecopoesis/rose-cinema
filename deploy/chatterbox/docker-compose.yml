@@ -13,5 +13,12 @@ services:
       - /opt/containers/chatterbox/outputs:/app/outputs
       - /opt/containers/chatterbox/logs:/app/logs
       - /opt/containers/chatterbox/hf_cache:/app/hf_cache
+    # CPU torch on glibc malloc fragments across per-thread arenas with
+    # variable-length requests and never returns memory (grew to 54 GiB in
+    # 4 weeks). Cap arenas, trim eagerly, and hard-limit as a backstop.
+    mem_limit: 8g
     environment:
       HF_HUB_ENABLE_HF_TRANSFER: "1"
+      MALLOC_ARENA_MAX: "2"
+      MALLOC_TRIM_THRESHOLD_: "131072"
+      MALLOC_MMAP_THRESHOLD_: "131072"
