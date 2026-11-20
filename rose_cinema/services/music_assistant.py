@@ -231,22 +231,35 @@ class MusicAssistantClient:
         }
 
     async def set_apple_music_tokens(self, app_token: str, user_token: str) -> int:
-        """Write the tokens into every Apple Music provider instance.
+        """Write the tokens into every Apple Music provider instance, creating
+        one when none exists.
 
         The user token goes in the manual field: MA's own sign-in flow only
-        runs when its bundled app token is valid. Secure values come back
-        masked from config/providers/get, so masked ones are left out of the
-        save rather than written back. Returns the number of instances updated.
+        runs when its bundled app token is valid, and once Apple revokes that
+        token MA's UI can neither re-auth nor re-add the provider. Secure
+        values come back masked from config/providers/get, so masked ones are
+        left out of the save rather than written back. Returns the number of
+        instances updated or created.
         """
         updated = 0
         async with self._session() as (ws, mid):
             r = await _call(ws, mid, "config/providers")
             if _error(r):
                 raise RuntimeError(f"MA config/providers failed: {_error(r)}")
-            for prov in r.get("result") or []:
-                if prov.get("domain") != "apple_music":
-                    continue
-                iid = prov["instance_id"]
+            instances = [
+                p["instance_id"] for p in r.get("result") or []
+                if p.get("domain") == "apple_music"
+            ]
+            if not instances:
+                r = await _call(
+                    ws, mid, "config/providers/save",
+                    provider_domain="apple_music",
+                    values={"music_app_token": app_token, "music_user_manual_token": user_token},
+                )
+                if _error(r):
+                    raise RuntimeError(f"MA could not add Apple Music provider: {_error(r)}")
+                return 1
+            for iid in instances:
                 r = await _call(ws, mid, "config/providers/get", instance_id=iid)
                 if _error(r):
                     raise RuntimeError(f"MA config/providers/get failed: {_error(r)}")

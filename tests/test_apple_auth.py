@@ -163,6 +163,35 @@ async def test_ma_token_push_skips_masked_values(monkeypatch):
     }]
 
 
+async def test_ma_token_push_creates_missing_provider(monkeypatch):
+    saved: list[dict] = []
+
+    async def fake_call(ws, ids, command, **args):
+        if command == "config/providers":
+            return {"result": [{"domain": "spotify", "instance_id": "sp1"}]}
+        if command == "config/providers/save":
+            saved.append(args)
+            return {"result": {"instance_id": "apple_music--new"}}
+        raise AssertionError(command)
+
+    class _Session:
+        async def __aenter__(self):
+            return None, None
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr("rose_cinema.services.music_assistant._call", fake_call)
+    client = MusicAssistantClient("http://ma", "t")
+    monkeypatch.setattr(client, "_session", lambda: _Session())
+
+    assert await client.set_apple_music_tokens("app", "user") == 1
+    assert saved == [{
+        "provider_domain": "apple_music",
+        "values": {"music_app_token": "app", "music_user_manual_token": "user"},
+    }]
+
+
 def _patch_storefront(monkeypatch, status_code: int) -> None:
     real_client = httpx.AsyncClient
     monkeypatch.setattr(

@@ -835,8 +835,6 @@ async def set_apple_music_auth(
                 ma.set_apple_music_tokens(mint_long_lived_token(), user_token), timeout=30,
             )
             status.ma_synced = updated > 0
-            if not updated:
-                status.ma_error = "No Apple Music provider configured in Music Assistant"
         except Exception as exc:
             logger.exception("Pushing Apple Music tokens to Music Assistant failed")
             status.ma_synced = False
