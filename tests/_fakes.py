@@ -84,7 +84,7 @@ class FakeCatalog(MusicCatalog):
         return dict(self.genres)
 
     async def get_genre_top_songs(self, genre_id: str, limit: int = 30) -> list[CatalogTrack]:
-        self.calls.append(("get_genre_top_songs", genre_id))
+        self.calls.append(("get_genre_top_songs", genre_id, limit))
         return list(self.genre_top_songs.get(genre_id, []))[:limit]
 
 

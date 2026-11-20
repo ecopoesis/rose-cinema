@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import random
 import re
 from collections import defaultdict
@@ -775,10 +776,12 @@ class SeedPoolBuilder:
             )
 
         sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
+        # Deep enough for a pool ~4x the show, so history has room to rotate.
+        depth = max(30, min(200, math.ceil(target_count * 4 / len(chosen_ids))))
 
         async def fetch(gid: str):
             async with sem:
-                return await self._catalog.get_genre_top_songs(gid, limit=30)
+                return await self._catalog.get_genre_top_songs(gid, limit=depth)
 
         all_lists = await asyncio.gather(*(fetch(gid) for gid in chosen_ids), return_exceptions=True)
 

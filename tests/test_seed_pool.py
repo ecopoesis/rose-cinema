@@ -709,3 +709,41 @@ def test_history_floor_never_cuts_capacity_below_target_margin():
     assert cap_fill(tracks) == 20
     assert history_floor(tracks, 10) == 12  # 1.25 × target
     assert history_floor(tracks, 40) == 20  # already thin: keep what's there
+
+
+@pytest.mark.asyncio
+async def test_theme_pool_chart_depth_scales_with_show_length():
+    catalog = FakeCatalog(genres={"Rock": "21", "Pop": "14"}, genre_top_songs={
+        "21": [mk_track(f"R{i}", f"R{i}", f"Rock {i}") for i in range(300)],
+        "14": [mk_track(f"P{i}", f"P{i}", f"Pop {i}") for i in range(300)],
+    })
+    builder = SeedPoolBuilder(catalog, FakeLLM(['{"genres": ["Rock", "Pop"]}']))
+
+    pool = await builder.build("rainy Tuesday afternoon", target_count=98)
+
+    limits = {c[2] for c in catalog.calls if c[0] == "get_genre_top_songs"}
+    assert limits == {196}  # ceil(98 * 4 / 2)
+    assert len(pool.tracks) == 392
+
+
+@pytest.mark.asyncio
+async def test_musickit_charts_page_until_limit():
+    from rose_cinema.services.musickit import MusicKitCatalog
+
+    requests: list[dict] = []
+
+    async def fake_get(path, params):
+        requests.append(params)
+        start, n = params["offset"], params["limit"]
+        data = [
+            {"id": str(i), "attributes": {"name": f"S{i}", "artistName": "A", "durationInMillis": 1000}}
+            for i in range(start, min(start + n, 150))
+        ]
+        return {"results": {"songs": [{"data": data, **({"next": "x"} if start + n < 150 else {})}]}}
+
+    cat = MusicKitCatalog(signer=None)
+    cat._get = fake_get
+    songs = await cat.get_genre_top_songs("21", limit=500)
+
+    assert len(songs) == 150
+    assert [(r["offset"], r["limit"]) for r in requests] == [(0, 100), (100, 100)]

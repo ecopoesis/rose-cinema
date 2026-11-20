@@ -23,6 +23,10 @@ _TOKEN_REFRESH_BEFORE = 1 * 86_400        # refresh if < 24h remaining
 MAX_TOKEN_LIFETIME_SECS = 15_777_000      # Apple's 6-month cap
 
 
+_CHART_MAX = 200
+_CHART_PAGE = 100
+
+
 class MusicKitTokenSigner:
     """Mints and caches an Apple Music developer JWT (ES256)."""
 
@@ -182,17 +186,23 @@ class MusicKitCatalog(MusicCatalog):
         return out
 
     async def get_genre_top_songs(self, genre_id: str, limit: int = 30) -> list[CatalogTrack]:
-        body = await self._get(
-            f"/catalog/{self._storefront}/charts",
-            {"types": "songs", "genre": genre_id, "limit": limit},
-        )
-        results = body.get("results") or {}
-        songs_blocks = results.get("songs") or []
+        """Chart songs in rank order, paged; Apple serves at most 200 per chart."""
+        limit = min(limit, _CHART_MAX)
         out: list[CatalogTrack] = []
-        for block in songs_blocks:
-            for item in block.get("data") or []:
-                out.append(_track_from_payload(item))
-        return out
+        while len(out) < limit:
+            body = await self._get(
+                f"/catalog/{self._storefront}/charts",
+                {
+                    "types": "songs", "genre": genre_id,
+                    "limit": min(_CHART_PAGE, limit - len(out)), "offset": len(out),
+                },
+            )
+            blocks = (body.get("results") or {}).get("songs") or []
+            page = [_track_from_payload(i) for b in blocks for i in b.get("data") or []]
+            out.extend(page)
+            if not page or not any(b.get("next") for b in blocks):
+                break
+        return out[:limit]
 
 
 _token_signer: MusicKitTokenSigner | None = None
