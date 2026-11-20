@@ -637,8 +637,8 @@ async def test_playlist(
 
     run_repo = SqlPlaylistRunRepository(session)
     exclude_ids = (
-        set(await run_repo.list_recent_track_ids(station_id, max_runs=station.history_runs))
-        if station.history_runs > 0 else set()
+        await run_repo.list_recent_track_ids(station_id, max_runs=station.history_runs)
+        if station.history_runs > 0 else []
     )
     recent_artists = (
         sorted(await run_repo.list_recent_artist_names(station_id, max_runs=station.history_runs))

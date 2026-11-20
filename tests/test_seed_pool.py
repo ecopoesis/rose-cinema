@@ -669,3 +669,43 @@ async def test_rotation_halves_recent_artists_in_thin_pool():
     kept = [t for t in pool.tracks if t.artist == "Similar 0"]
     assert len(kept) == 2  # 4 sampled tracks halved
     assert pool.recent_artists == ("Similar 0",)
+
+
+def _thin_pool(tracks_per_artist: int, n_artists: int):
+    from rose_cinema.services.seed_pool import SeedPool
+
+    return SeedPool(
+        seed_label="seed", seed_artist=None, source="multi_artist_seed", artists=[],
+        tracks=[
+            mk_track(f"{a}-{i}", f"T{i}", f"Artist {a}")
+            for a in range(n_artists) for i in range(tracks_per_artist)
+        ],
+    )
+
+
+def test_rotation_skips_halving_that_would_starve_the_show():
+    from rose_cinema.services.seed_pool import _apply_artist_rotation
+
+    pool = _thin_pool(tracks_per_artist=2, n_artists=10)  # capacity 20
+    _apply_artist_rotation(pool, [f"artist {a}" for a in range(5)], target_count=16)
+
+    assert len(pool.tracks) == 20  # halving to 1 each would cut capacity to 15 < 20
+    assert len(pool.recent_artists) == 5
+
+
+def test_rotation_halves_when_capacity_is_unaffected():
+    from rose_cinema.services.seed_pool import _apply_artist_rotation
+
+    pool = _thin_pool(tracks_per_artist=4, n_artists=10)
+    _apply_artist_rotation(pool, ["artist 0"], target_count=16)
+
+    assert sum(t.artist == "Artist 0" for t in pool.tracks) == 2
+
+
+def test_history_floor_never_cuts_capacity_below_target_margin():
+    from rose_cinema.services.seed_pool import cap_fill, history_floor
+
+    tracks = [mk_track(f"{a}{i}", f"T{i}", f"Artist {a}") for a in range(10) for i in range(3)]
+    assert cap_fill(tracks) == 20
+    assert history_floor(tracks, 10) == 12  # 1.25 × target
+    assert history_floor(tracks, 40) == 20  # already thin: keep what's there

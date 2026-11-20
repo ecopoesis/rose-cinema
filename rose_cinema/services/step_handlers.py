@@ -47,7 +47,7 @@ async def handle_pick_tracks(payload: dict) -> dict:
     station_id = payload["station_id"]
     music_source = payload["music_source"]
     length_minutes = payload["length_minutes"]
-    exclude_ids = set(payload.get("exclude_ids", []))
+    exclude_ids = list(payload.get("exclude_ids") or [])
 
     from rose_cinema.database import async_session
     from rose_cinema.services.track_picker import TrackPicker

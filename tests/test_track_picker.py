@@ -268,3 +268,37 @@ async def test_recent_artists_named_in_prompt():
 
     assert "Recently featured" in llm.calls[0][0].content
     assert "Similar 0" in llm.calls[0][0].content
+
+
+def test_recent_exclusion_drops_newest_plays_first_and_stops_at_floor():
+    from rose_cinema.services.track_picker import _exclude_recent
+
+    tracks = [mk_track(f"{a}-{i}", f"T{i}", f"Artist {a}") for a in range(10) for i in range(2)]
+    # capacity 20; target 12 -> floor 15, so at most 5 artists' worth can go.
+    recent_newest_first = [f"{a}-0" for a in range(10)]
+    kept = _exclude_recent(tracks, recent_newest_first, target_count=12)
+
+    gone = {t.apple_music_id for t in tracks} - {t.apple_music_id for t in kept}
+    assert gone == {f"{a}-0" for a in range(5)}
+
+
+def test_recent_exclusion_removes_all_when_pool_is_rich():
+    from rose_cinema.services.track_picker import _exclude_recent
+
+    tracks = [mk_track(f"{a}-{i}", f"T{i}", f"Artist {a}") for a in range(30) for i in range(2)]
+    kept = _exclude_recent(tracks, ["0-0", "1-0", "missing"], target_count=10)
+
+    assert {"0-0", "1-0"}.isdisjoint(t.apple_music_id for t in kept)
+    assert len(kept) == 58
+
+
+@pytest.mark.asyncio
+async def test_pool_path_excludes_recent_tracks():
+    pool = _pool(*[mk_track(f"T{i}", f"T{i}", f"A{i}") for i in range(20)])
+    llm = FakeLLM(['{"picks": [0, 1, 2]}'])
+    picker = TrackPicker(llm, catalog=None, seed_builder=FakeSeedBuilder(pool))
+
+    songs = await picker.pick(
+        music_source="seed", target_minutes=10, avg_song_secs=200, exclude_ids=["T0"],
+    )
+    assert "T0" not in {s.apple_music_id for s in songs}

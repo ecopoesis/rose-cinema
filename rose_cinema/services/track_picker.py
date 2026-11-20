@@ -7,7 +7,7 @@ import re
 from rose_cinema.providers import LLMMessage, LLMProvider
 from rose_cinema.services.catalog import CatalogTrack, MusicCatalog, best_match
 from rose_cinema.services.exclusions import is_excluded, normalize_exclusions
-from rose_cinema.services.seed_pool import SeedPool, SeedPoolBuilder
+from rose_cinema.services.seed_pool import SeedPool, SeedPoolBuilder, cap_fill, history_floor
 from rose_cinema.services.station_builder import SongMetadata
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ class TrackPicker:
         music_source: str,
         target_minutes: int,
         avg_song_secs: int = 220,
-        exclude_ids: set[str] | None = None,
+        exclude_ids: list[str] | None = None,
         source_artists: list[str] | None = None,
         source_albums: list[str] | None = None,
         source_tracks: list[str] | None = None,
@@ -106,8 +106,11 @@ class TrackPicker:
             if pool.tracks:
                 if exclude_ids:
                     before = len(pool.tracks)
-                    pool.tracks = [t for t in pool.tracks if t.apple_music_id not in exclude_ids]
-                    logger.info("Excluded %d recently-played tracks from pool", before - len(pool.tracks))
+                    pool.tracks = _exclude_recent(pool.tracks, exclude_ids, target_count)
+                    logger.info(
+                        "Excluded %d recently-played tracks from pool (%d left)",
+                        before - len(pool.tracks), len(pool.tracks),
+                    )
                 return await self._pick_from_pool(pool, music_source, target_count)
             logger.info("seed_pool empty for %r — falling back to LLM-discovery", music_source)
 
@@ -389,6 +392,31 @@ def _track_to_song(t: CatalogTrack, *, fallback_duration: float = 0.0) -> SongMe
         duration_secs=t.duration_secs or fallback_duration,
         track_number=t.track_number,
     )
+
+
+def _exclude_recent(
+    tracks: list[CatalogTrack], exclude_ids: list[str], target_count: int,
+) -> list[CatalogTrack]:
+    """Drop recently played tracks, newest first, stopping before the pool
+    gets too thin to fill the show; the oldest plays come back first."""
+    floor = history_floor(tracks, target_count)
+    in_pool = {t.apple_music_id for t in tracks}
+    ordered = [i for i in exclude_ids if i in in_pool]
+    lo, hi = 0, len(ordered)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        drop = set(ordered[:mid])
+        if cap_fill([t for t in tracks if t.apple_music_id not in drop]) >= floor:
+            lo = mid
+        else:
+            hi = mid - 1
+    if lo < len(ordered):
+        logger.info(
+            "Recent-track exclusion floored: kept %d of %d recent tracks in a thin pool",
+            len(ordered) - lo, len(ordered),
+        )
+    drop = set(ordered[:lo])
+    return [t for t in tracks if t.apple_music_id not in drop]
 
 
 def _cap_per_artist(songs: list[SongMetadata], max_per_artist: int) -> list[SongMetadata]:

@@ -106,6 +106,10 @@ def _run_to_record(r: PlaylistRun) -> PlaylistRunRecord:
 # ── DJ ─────────────────────────────────────────────────────────────────
 
 
+# "saved" is "ready" after the playlist was pushed to Music Assistant.
+_HISTORY_STATUSES = ("ready", "saved")
+
+
 class SqlDJRepository(DJRepository):
     def __init__(self, session: AsyncSession):
         self._session = session
@@ -275,14 +279,15 @@ class SqlPlaylistRunRepository(PlaylistRunRepository):
         result = await self._session.execute(q.order_by(PlaylistRun.created_at.desc()))
         return [_run_to_record(r) for r in result.scalars().all()]
 
-    async def list_recent_track_ids(self, station_id: str, max_runs: int = 3) -> set[str]:
+    async def list_recent_track_ids(self, station_id: str, max_runs: int = 3) -> list[str]:
+        """Track ids from the last ``max_runs`` finished runs, newest run first."""
         result = await self._session.execute(
             select(PlaylistRun.playlist_json)
-            .where(PlaylistRun.station_id == station_id, PlaylistRun.status == "ready")
+            .where(PlaylistRun.station_id == station_id, PlaylistRun.status.in_(_HISTORY_STATUSES))
             .order_by(PlaylistRun.created_at.desc())
             .limit(max_runs)
         )
-        ids: set[str] = set()
+        ids: dict[str, None] = {}
         for (playlist_json,) in result.all():
             try:
                 entries = json.loads(playlist_json)
@@ -290,13 +295,13 @@ class SqlPlaylistRunRepository(PlaylistRunRepository):
                 continue
             for entry in entries:
                 if entry.get("type") == "song" and entry.get("apple_music_id"):
-                    ids.add(entry["apple_music_id"])
-        return ids
+                    ids.setdefault(entry["apple_music_id"])
+        return list(ids)
 
     async def list_recent_artist_names(self, station_id: str, max_runs: int = 3) -> set[str]:
         result = await self._session.execute(
             select(PlaylistRun.playlist_json)
-            .where(PlaylistRun.station_id == station_id, PlaylistRun.status == "ready")
+            .where(PlaylistRun.station_id == station_id, PlaylistRun.status.in_(_HISTORY_STATUSES))
             .order_by(PlaylistRun.created_at.desc())
             .limit(max_runs)
         )

@@ -586,9 +586,10 @@ class SeedPoolBuilder:
 
         async def fetch_seed(a: CatalogArtist):
             async with sem:
+                # Fetch twice what's kept so the sample below varies night to night.
                 return await self._catalog.get_artist_views(
                     a.apple_music_id,
-                    top_songs=top_per_seed,
+                    top_songs=top_per_seed * 2,
                     similar_artists=similar_per_seed,
                 )
 
@@ -972,14 +973,35 @@ def _apply_year_window(pool: SeedPool, year_variety: float, target_count: int) -
         )
 
 
+# History (artist rotation, recent-track exclusion) only thins the pool while
+# it can still fill this multiple of the target under the 2-per-artist cap.
+HISTORY_FLOOR = 1.25
+
+
+def cap_fill(tracks: list[CatalogTrack], max_per_artist: int = 2) -> int:
+    """How many tracks the pool can supply under the per-artist cap."""
+    counts: dict[str, int] = {}
+    for t in tracks:
+        key = t.artist.lower().strip()
+        counts[key] = min(max_per_artist, counts.get(key, 0) + 1)
+    return sum(counts.values())
+
+
+def history_floor(tracks: list[CatalogTrack], target_count: int) -> int:
+    """Capacity history must leave. A pool already below the floor may still
+    shed tracks that cost no capacity (an artist's 3rd and later songs)."""
+    return min(round(target_count * HISTORY_FLOOR), cap_fill(tracks))
+
+
 def _apply_artist_rotation(
     pool: SeedPool, recent_artists: list[str] | None, target_count: int,
 ) -> None:
     """Down-weight artists featured in recent runs, never the seed artist.
 
     With a rich pool their tracks are dropped outright; with a thin one each
-    recent artist keeps half its tracks. Survivors are named on the pool so
-    the curation prompt can deprioritize them.
+    recent artist keeps half its tracks, unless that would leave too few to
+    fill the show. Survivors are named on the pool so the curation prompt can
+    deprioritize them.
     """
     if not recent_artists or not pool.tracks:
         return
@@ -1010,7 +1032,11 @@ def _apply_artist_rotation(
             counts[key] += 1
             survivors.add(t.artist)
         kept.append(t)
-    if len(kept) < len(pool.tracks):
+    if cap_fill(kept) < history_floor(pool.tracks, target_count):
+        logger.info("artist rotation: pool too thin to halve recent artists")
+        kept = pool.tracks
+        survivors = {t.artist for t in kept if t.artist.lower().strip() in recent}
+    elif len(kept) < len(pool.tracks):
         logger.info(
             "artist rotation: thin pool — halved recent artists (%d tracks dropped)",
             len(pool.tracks) - len(kept),
